@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Complex Domain Modeling — Senior/Staff Engineer Interview Session</title>
+<style>
+:root {
+  --bg: #fafaf8;
+  --bg2: #f2f0ea;
+  --text: #2c2c2a;
+  --text2: #5f5e5a;
+  --accent: #534AB7;
+  --accent-bg: #EEEDFE;
+  --teal: #0F6E56;
+  --teal-bg: #E1F5EE;
+  --coral: #993C1D;
+  --coral-bg: #FAECE7;
+  --amber: #854F0B;
+  --amber-bg: #FAEEDA;
+  --blue: #185FA5;
+  --blue-bg: #E6F1FB;
+  --border: #d3d1c7;
+  --code-bg: #f1efe8;
+  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--font); color: var(--text); background: var(--bg); line-height: 1.75; }
+.container { max-width: 1200px; margin: 0 auto; padding: 40px 24px 80px; }
+h1 { font-size: 28px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+h2 { font-size: 22px; font-weight: 600; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--border); color: var(--text); }
+h3 { font-size: 18px; font-weight: 600; margin: 32px 0 12px; color: var(--text); }
+h4 { font-size: 16px; font-weight: 600; margin: 24px 0 8px; color: var(--text2); }
+p { margin: 12px 0; }
+.subtitle { font-size: 16px; color: var(--text2); margin-bottom: 32px; }
+.scenario-box {
+  background: var(--accent-bg);
+  border-left: 4px solid var(--accent);
+  padding: 20px 24px;
+  border-radius: 0 8px 8px 0;
+  margin: 20px 0;
+}
+.scenario-box h4 { color: var(--accent); margin-top: 0; }
+.challenge-box {
+  background: var(--coral-bg);
+  border-left: 4px solid var(--coral);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin: 16px 0;
+}
+.challenge-box strong { color: var(--coral); }
+.solution-box {
+  background: var(--teal-bg);
+  border-left: 4px solid var(--teal);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin: 16px 0;
+}
+.solution-box strong { color: var(--teal); }
+.insight-box {
+  background: var(--amber-bg);
+  border-left: 4px solid var(--amber);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin: 16px 0;
+}
+.insight-box strong { color: var(--amber); }
+.info-box {
+  background: var(--blue-bg);
+  border-left: 4px solid var(--blue);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin: 16px 0;
+}
+.info-box strong { color: var(--blue); }
+.dialogue {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border-radius: 8px;
+}
+.dialogue.interviewer {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+}
+.dialogue.candidate {
+  background: #fff;
+  border: 1px solid var(--border);
+}
+.dialogue-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+.dialogue.interviewer .dialogue-label { color: var(--accent); }
+.dialogue.candidate .dialogue-label { color: var(--teal); }
+code {
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+pre {
+  background: var(--code-bg);
+  padding: 16px 20px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 12px 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  border: 1px solid var(--border);
+}
+ul, ol { margin: 8px 0 8px 24px; }
+li { margin: 4px 0; }
+.toc { background: var(--bg2); padding: 24px; border-radius: 12px; margin: 24px 0; }
+.toc h3 { margin-top: 0; }
+.toc a { color: var(--accent); text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.toc ol { margin-left: 20px; }
+.toc li { margin: 6px 0; }
+.principle-list { list-style: none; margin: 0; padding: 0; }
+.principle-list li { padding: 10px 16px; margin: 8px 0; background: var(--bg2); border-radius: 8px; border-left: 3px solid var(--accent); }
+.section-divider { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
+.tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; margin: 2px 4px 2px 0; }
+.tag-pattern { background: var(--accent-bg); color: var(--accent); }
+.tag-concept { background: var(--teal-bg); color: var(--teal); }
+.tag-principle { background: var(--amber-bg); color: var(--amber); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Complex Domain Modeling</h1>
+<p class="subtitle">A Senior/Staff Engineer Interview Session — Object-Oriented Design & Domain-Driven Design</p>
+
+<div class="toc">
+<h3>Table of Contents</h3>
+<ol>
+  <li><a href="#scenario6">Enterprise Workflow Automation Platform</a></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="scenario6">Enterprise Workflow Automation Platform</h2>
+<!-- ============================================================ -->
+
+<div class="scenario-box">
+<h4>The Scenario</h4>
+<p>Think Zapier or Microsoft Power Automate, but for enterprise. Design the core domain for a platform where non-technical business users build their own automated workflows.</p>
+
+<p>Here are the business requirements:</p>
+<ol>
+  <li>A <strong>Workspace</strong> belongs to an organization. Users within the workspace create <strong>Workflows</strong>. A workflow is a chain of <strong>Steps</strong> that execute in sequence when triggered.</li>
+  <li>Each step is one of three types:
+    <ul>
+      <li><strong>Trigger</strong>: the event that starts the workflow (e.g., "when a new row is added to Google Sheets," "when an email arrives in Gmail," "when a form is submitted"). Can be event-based or schedule-based ("every Monday at 9am").</li>
+      <li><strong>Action</strong>: do something (e.g., "send a Slack message," "create a Jira ticket," "insert a row into a database").</li>
+      <li><strong>Condition</strong>: a branching point (e.g., "if the email subject contains 'urgent', go to Step A, otherwise go to Step B"). Conditions can create parallel branches that later merge.</li>
+    </ul>
+  </li>
+  <li>Steps connect to <strong>external services</strong> through <strong>Integrations</strong>. An integration holds the OAuth credentials and configuration for a specific service (e.g., the workspace's Slack integration). Integrations are <strong>per-workspace</strong> — shared by all users and all workflows in that organization. Multiple workflows can share the same integration.</li>
+  <li><strong>The data mapping problem</strong>: each step produces an output (e.g., the Trigger "new email" produces <code>{sender, subject, body}</code>). Subsequent steps can reference outputs from any previous step. A user might configure an Action step like: "send a Slack message where the text is <code>New urgent email from {{trigger.sender}} about {{trigger.subject}}</code>." These template references must be validated — you can't reference an output field that doesn't exist, and you can't reference a step that isn't upstream in the workflow graph.</li>
+  <li><strong>Versioning</strong>: when a user modifies a workflow, currently running executions must complete using the <strong>old version</strong>. New triggers use the <strong>new version</strong>. Multiple versions can be executing simultaneously.</li>
+  <li><strong>Execution</strong>: when a workflow is triggered, the system creates an <strong>Execution</strong> that walks through the steps. Each step execution can succeed, fail, or timeout. If a step fails, the user can configure one of three strategies: <strong>stop the workflow</strong>, <strong>skip and continue</strong>, or <strong>retry N times then stop</strong>.</li>
+  <li><strong>Rate limiting</strong>: external services have API rate limits. If 50 workflows all try to send a Slack message at the same second, the platform must queue and throttle them. Rate limits are per-integration, not per-workflow.</li>
+  <li><strong>Parallel Execution Branches</strong>: When a condition creates two branches, both branches execute simultaneously, not sequentially. A merge step waits for all incoming branches to complete before proceeding. But here's the twist: if one branch fails and its failure strategy is "stop the workflow," the other still-running branch must be cancelled mid-execution. If the strategy is "skip and continue," the merge step proceeds with partial results — it receives outputs from the successful branch and null from the failed one. Downstream steps referencing <code>{{branchA.result}}</code> must handle the null gracefully.</li>
+  <li><strong>Loops</strong>: Users can define a For-Each step that takes an array output from a previous step (e.g., "list of rows from Google Sheets") and executes a sub-workflow for each item. The sub-workflow is a nested DAG. Loop iterations can run in parallel (configurable: sequential, parallel with max concurrency of N). If one iteration fails, the user configures: stop all iterations, skip failed and continue, or retry that iteration. The loop step's output is an array of all iteration results. A loop with 10,000 items and parallel execution must not create 10,000 concurrent API calls — this ties into rate limiting.</li>
+  <li><strong>Webhook Triggers with Deduplication</strong>: External services can trigger workflows via webhook. But webhooks are unreliable — the sender might retry, delivering the same event 3 times. The system must deduplicate webhook deliveries within a 5-minute window using an idempotency key. Additionally, webhook payloads must be validated against a user-defined JSON schema before triggering the workflow. Invalid payloads are logged but do not create executions.</li>
+  <li><strong>Execution Timeout and Cost Budgets</strong>: Each workflow has a maximum execution timeout (default 30 minutes, configurable up to 24 hours for long-running data pipelines). Each workspace has a monthly execution budget — measured in total step executions. A free workspace gets 1,000 step executions per month. A paid workspace gets 50,000. When the budget is exhausted, scheduled triggers stop firing, but webhook triggers still create executions that immediately fail with a "budget exceeded" error (so the webhook sender gets feedback). Budget tracking must be accurate under concurrent execution — 20 workflows finishing simultaneously must not overshoot the budget.</li>
+  <li><strong>Secrets and Variable Scoping</strong>: Workspaces have environment variables (e.g., <code>API_KEY</code>, <code>DATABASE_URL</code>) that can be referenced in step configurations using <code>{{env.API_KEY}}</code>. Variables have scopes: workspace-level (shared by all workflows), workflow-level (override workspace defaults), and execution-level (passed in at trigger time, e.g., webhook payload fields). Narrower scope wins. Secrets (variables marked as sensitive) must never appear in execution logs — the system must redact them from step outputs before persisting.</li>
+  <li><strong>Integration Definition Framework</strong>: Integrations are not hardcoded. The platform supports a plugin architecture where each integration is defined declaratively. An integration definition contains:
+    <ul>
+      <li><strong>Authentication spec</strong>: the type of auth (OAuth2, API key, Basic Auth, custom token refresh), the endpoints for auth flow, token refresh logic, and what headers/query params the token gets attached to. OAuth2 alone has variations: authorization code flow, client credentials flow, PKCE. Some services (like Shopify) require per-store OAuth where each customer has a different OAuth app. Others (like Slack) use workspace-level tokens.</li>
+      <li><strong>Action catalog</strong>: each integration exposes a set of actions. Slack might expose: send message, create channel, list users, upload file. Each action has an input schema (what fields the user must configure), an output schema (what fields the action produces for downstream steps), and an HTTP spec (method, URL template, headers, body template, pagination strategy). For example, "send Slack message" has input <code>{channel: string, text: string}</code>, output <code>{messageId: string, timestamp: string}</code>, and HTTP spec POST <code>https://slack.com/api/chat.postMessage</code> with the token in the Authorization header and the body as JSON.</li>
+      <li><strong>Trigger catalog</strong>: each integration can expose triggers. Two types: webhook-based (Slack sends an event to your endpoint when a message is posted) and polling-based (every 5 minutes, call the Google Sheets API and check if new rows were added since last poll). Polling triggers need to track a cursor — a timestamp, page token, or row ID that marks "where we left off." The cursor must persist across polls and be per-workflow, not per-integration.</li>
+      <li><strong>Response mapping</strong>: external APIs return wildly different response structures. Slack wraps everything in <code>{ok: true, data: {...}}</code>. Google returns <code>{items: [...], nextPageToken: "..."}</code>. Some APIs return 200 with an error in the body. The integration definition includes a response transformer — a declarative mapping that extracts the actual data, detects errors, and normalizes the output to match the declared output schema.</li>
+      <li><strong>Pagination</strong>: some actions return paginated results. "List all Jira issues" might return 50 at a time with a cursor. The integration definition specifies the pagination strategy: cursor-based, offset-based, or page-number-based. The execution engine must auto-paginate and aggregate all pages into a single output array before passing it to the next step. This ties directly into the For-Each requirement — "list all Jira issues" producing 3,000 results flows into a For-Each loop.</li>
+    </ul>
+  </li>
+  <li><strong>Custom Integrations by Users</strong>: Users can create their own integrations within their workspace. They define the auth method, base URL, and individual actions with HTTP specs and schemas. This is essentially a visual API client builder. A user might create a "My Company Internal API" integration with actions like "create employee record" and "fetch department list." Custom integrations go through the exact same execution path as built-in integrations. The execution engine doesn't know or care whether it's hitting Slack's API or a user's internal service. This means your integration abstraction must be clean enough that the engine only speaks to a uniform interface.</li>
+  <li><strong>Webhook Management</strong>: For webhook-based triggers, the platform must manage webhook registration with external services. When a user creates a workflow with a Slack "new message" trigger, the platform must call Slack's API to register a webhook URL. When the workflow is deleted or the trigger is changed, the platform must deregister the webhook. If the registration fails (permissions issue, Slack is down), the workflow cannot be activated. Some services require webhook signature verification — Slack signs payloads with HMAC-SHA256, Stripe uses a different signing scheme, GitHub uses yet another. The integration definition includes the signature verification method and secret location. Webhook URLs must be unique per workflow. If two workflows both trigger on "new Slack message in #general," they each get separate webhook registrations and separate incoming URLs. The platform routes incoming webhooks to the correct workflow based on the URL path.</li>
+  <li><strong>OAuth Token Lifecycle</strong>: OAuth tokens expire. Refresh tokens sometimes expire too. Some providers (Google) give you a refresh token once and never again — if you lose it or it expires, the user must re-authorize. The platform must proactively refresh tokens before they expire. If a refresh fails, all workflows using that integration must pause (you designed this already in the original scenario), and the user must be notified to re-authorize. Token refresh must be serialized per integration instance. If 10 workflows simultaneously discover the token is expired, they must not all attempt to refresh concurrently — that would send 10 refresh requests to the provider, 9 of which will fail (or worse, the provider rotates the refresh token on each use and now you have a race condition where the first refresh invalidates the token the second refresh is using).</li>
+  <li><strong>Rate Limit Discovery and Adaptation</strong>: Different APIs express rate limits differently. Slack returns <code>X-RateLimit-Remaining</code> and <code>X-RateLimit-Reset</code> headers. GitHub returns <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code>, <code>X-RateLimit-Reset</code>. Some APIs (like Notion) return 429 with a <code>Retry-After</code> header but no proactive headers. Some APIs have multiple rate limit tiers (Shopify: 40 requests per app per store per minute, plus a daily limit of 10,000). The integration definition declares the rate limit strategy: header-based (read remaining/reset headers from every response and adjust), reactive (just handle 429s with exponential backoff), or configured (hardcoded limit set by the user). The rate limiter must adapt in real-time — if the response says "3 requests remaining, resets in 45 seconds," queue the next requests accordingly.</li>
+</ol>
+
+<p>The workflow is always a <strong>Directed Acyclic Graph (DAG)</strong> — no cycles allowed. A workflow has exactly one Trigger step as its entry point. Multiple executions of the same workflow can overlap (e.g., a scheduled workflow running every 15 minutes might still be processing the previous run when the next one triggers).</p>
+
+<p><strong>Why this is brutal:</strong></p>
+<p>The workflow is a <strong>user-defined directed graph</strong> with branching and merging. The data mapping creates a dependency chain where each step's configuration depends on the schema of upstream steps — change a trigger's output schema and you might break 15 downstream steps across 3 branches. Versioning means the "current" workflow and the "executing" workflow can be different objects. Rate limiting spans across all workflows that share an integration.</p>
+
+<p><strong>Architecture &amp; Performance Pressure:</strong></p>
+<ol>
+  <li><strong>Pressure 1 — Execution Engine Hot Path</strong>: A large workspace has 200 active workflows, 50 of which are scheduled to run every minute. At the top of each minute, 50 workflows trigger simultaneously. Each workflow averages 8 steps. That's 400 step executions per minute sustained, with spikes of 50 concurrent workflow starts. The execution engine must process these without falling behind — if minute-2's triggers fire while minute-1's executions are still running, they must not queue indefinitely. Design the step execution pipeline so it scales horizontally. Think about whether WorkflowExecution and ActionExecution can be processed by different workers, and how the event flow between them handles backpressure.</li>
+  <li><strong>Pressure 2 — Rate Limiter Under Contention</strong>: 30 workflows in the same workspace all use the Slack integration. Slack's API allows 50 requests per minute per workspace token. During a spike, 30 workflows each try to send a Slack message within the same 10-second window. The rate limiter must queue excess requests and drain them at the allowed rate without dropping any, while providing backpressure to the execution engine so step executions wait rather than timeout. Design the IntegrationRequest aggregate and its queue so it handles this gracefully. Consider: is rate limiting per-integration-instance (one Slack token) or per-integration-type? What happens when queued requests exceed the step's timeout?</li>
+  <li><strong>Pressure 3 — Execution Log Query Performance</strong>: Users view execution history — filtered by workflow, status, date range, and duration. For a workspace with 100,000 executions per month, the UI must return paginated results within 500ms. Each execution has 5-15 step execution records with inputs, outputs (redacted), duration, and status. Design your read model and storage strategy. Think about whether execution logs belong in the same database as the write-side aggregates.</li>
+  <li><strong>Pressure 4 — Workflow Version Migration</strong>: A user modifies a workflow that currently has 12 active executions using the old version. New triggers must use the new version. But the user also wants to see "which version is each execution running?" in the dashboard. If a workflow has been edited 47 times, do you keep all 47 versions? How do you garbage-collect versions that have no running executions and are not the current version?</li>
+  <li><strong>Pressure 5 — For-Each with 50,000 Items</strong>: A data pipeline workflow fetches 50,000 rows from a database, then runs a For-Each that calls an external API for each row (max concurrency: 10, external API rate limit: 100 requests/minute). This single workflow execution will run for approximately 8 hours. Design the execution so it's resumable — if the worker crashes at iteration 23,000, it can pick up from where it left off without re-processing completed iterations. Think about checkpointing.</li>
+  <li><strong>Pressure 6 — Integration Hot-Swap</strong>: A built-in integration definition is updated (Slack changes their API endpoint, or adds a new action). The update must not break running executions. Running executions continue with the old definition. New executions use the new definition. This is the same versioning problem as workflows, but now applied to integrations. How do you version integration definitions, and does ActionExecution carry a snapshot of the integration definition it's using?</li>
+  <li><strong>Pressure 7 — Multi-Tenant Token Isolation</strong>: The platform hosts 10,000 workspaces. Each workspace has its own Slack token, Google token, etc. Tokens must be encrypted at rest. Token refresh must not leak one workspace's token to another. A bug in the refresh logic for Workspace A must not corrupt Workspace B's token. Design the token storage and refresh pipeline with tenant isolation as a hard constraint.</li>
+  <li><strong>Pressure 8 — Observability per Integration</strong>: The operations team needs to see: per integration type, across all workspaces, what's the current error rate, average latency, rate limit headroom, and token health. This is a cross-tenant read model. A Slack outage should be detectable within 2 minutes by seeing error rates spike across all workspaces using Slack. Design this as a separate read model that aggregates integration health without exposing tenant-specific data.</li>
+</ol>
+
+<p><strong>Task:</strong></p>
+<ol>
+  <li><strong>Bounded contexts and aggregates</strong> — how do you slice this domain?</li>
+  <li><strong>The workflow graph with data mapping validation</strong> — how do you model the steps, branches, and template references? Where does validation of <code>{{trigger.sender}}</code> live?</li>
+  <li><strong>Versioning</strong> — how do you model the relationship between a workflow and its versions so that running executions are isolated from edits?</li>
+  <li><strong>Rate limiting</strong> — this spans all workflows sharing an integration. Where does this concern live?</li>
+</ol>
+</div>
+
+<h3>Design</h3>
+
+<div class="dialogue candidate">
+<div class="dialogue-label">Candidate</div>
+
+<p><strong>WorkflowDefinition (supporting domain):</strong></p>
+<p>A WorkflowDefinition contains a tree structure of steps. Example data structure:</p>
+<pre>[
+  trigger,
+  Action A,
+  {
+    type: condition,
+    condition: x,
+    branches: {
+      "value1": [Action B, Action C],
+      "value2": [[Action F], [Action D, Action E]]
+    }
+  }
+]</pre>
+<p><code>ActionDefinition</code> — id, type: Action, integrationId, command (a symbolic field that represents what the action does, e.g. "send a Slack message," "create a Jira ticket"), failStrategy.</p>
+<p>Design-time validation of data mappings (<code>{{trigger.sender}}</code>) lives inside this supporting domain.</p>
+
+<p><strong>Execution Context:</strong></p>
+
+<p><code>WorkflowExecution</code> (aggregate root):</p>
+<ul>
+  <li><code>workflowVersionId</code></li>
+  <li><code>workflowDefinition</code> (value object from supporting domain) — with <code>getNextStep(currentStepId)</code></li>
+  <li><code>status</code>: InProgress / Stop</li>
+  <li><code>stepExecutions[]</code></li>
+</ul>
+
+<p><code>StepExecution</code> (entity inside WorkflowExecution):</p>
+<ul>
+  <li>stepExecutionId, stepId, output, status: started/skip/stop</li>
+  <li><code>getInput()</code> — resolves template references from upstream step outputs</li>
+  <li><code>start()</code> → if this step is an Action, publish a domain event <code>ActionStarted(workflowExecutionId, stepExecutionId, input)</code></li>
+  <li>For trigger and condition steps, just start the next appropriate step execution</li>
+  <li>Subscribes to <code>ActionDone/ActionSkip</code> to update status and start the next step execution</li>
+</ul>
+
+<p>Triggers fire at the application service layer. Trigger fires = create a new <code>WorkflowExecution</code> then start the first step after trigger.</p>
+
+<p><code>ActionExecution</code> (aggregate root):</p>
+<ul>
+  <li>workflowExecutionId, stepExecutionId, retryTimes, input, output</li>
+  <li><code>execute()</code> → if using an integration service, publish a domain event <code>IntegrationRequested(actionExecutionId, input, integrationType, command)</code></li>
+  <li>When done → publish a domain event <code>ActionDone/ActionSkip(workflowExecutionId, stepExecutionId, output)</code></li>
+  <li>ActionDefinition — integrations, failStrategy, command</li>
+  <li>Subscribes to <code>IntegrationRequestDone/Failed</code></li>
+</ul>
+
+<p><code>IntegrationRequest</code> (aggregate root):</p>
+<ul>
+  <li>Subscribes to <code>IntegrationRequested</code></li>
+  <li>Implements rate limiting here</li>
+  <li>Publishes <code>IntegrationRequestDone/Failed</code></li>
+</ul>
+</div>
+
+<h3>Key Design Decisions Explored</h3>
+
+<h4>Versioning</h4>
+
+<div class="solution-box">
+<strong>Solved elegantly:</strong> By embedding <code>WorkflowDefinition</code> as a <strong>value object</strong> inside <code>WorkflowExecution</code>, each execution carries its own frozen copy of the definition. Users can edit the workflow freely — running executions are completely isolated because they hold their own snapshot.
+</div>
+
+<h4>Branch Merging</h4>
+
+<div class="dialogue interviewer">
+<div class="dialogue-label">Interviewer</div>
+<p>In your <code>WorkflowExecution</code>, how does <code>getNextStep(currentStepId)</code> work when two branches merge back into a single step? When Action C completes on Branch 1, does the merge step start immediately? Or does it wait for Branch 2 to also complete?</p>
+</div>
+
+<div class="dialogue candidate">
+<div class="dialogue-label">Candidate</div>
+<p>When the next step after a done step is a merge step, but the other branches are not done yet, just return null and do nothing. When other branches are done, the next step will be resolved.</p>
+</div>
+
+<p>Since <code>WorkflowExecution</code> owns all <code>StepExecution</code> entities internally, this "are all branches done?" check is purely internal — no cross-aggregate coordination needed.</p>
+
+<h4>StepExecution vs ActionExecution Separation</h4>
+
+<div class="dialogue interviewer">
+<div class="dialogue-label">Interviewer</div>
+<p>You separated <code>ActionExecution</code> from <code>StepExecution</code>. That means a single step execution produces two aggregates coordinated by events. What drove that decision? Could <code>ActionExecution</code>'s logic live inside <code>StepExecution</code> instead?</p>
+</div>
+
+<div class="dialogue candidate">
+<div class="dialogue-label">Candidate</div>
+<p><code>StepExecution</code> is just an entity inside <code>WorkflowExecution</code> for tracking step completion. <code>WorkflowExecution</code> is just meant to handle status. <code>ActionExecution</code> handles the messy reality of retries, timeouts, and integration calls.</p>
+</div>
+
+<div class="insight-box">
+<strong>Clean separation:</strong> <code>WorkflowExecution</code> is the orchestrator that tracks which steps are done and determines what's next. <code>ActionExecution</code> is the worker that handles retries, timeouts, and integration communication. Same principle as the Promotion Engine — the orchestrator is dumb, the workers are smart.
+</div>
+
+<h4>Integration Credential Failure</h4>
+
+<div class="dialogue interviewer">
+<div class="dialogue-label">Interviewer</div>
+<p>A workspace's Slack OAuth token expires at 2am. There are 30 workflows that use Slack, and 12 of them have scheduled triggers between 2am and 6am. All 12 executions fail with an authentication error. This isn't a transient failure that retries will fix.</p>
+<p>Do all 12 <code>ActionExecution</code> aggregates burn through their retry attempts independently? Or is there a way to detect "this integration is globally broken" and pause all workflows depending on it?</p>
+</div>
+
+<div class="dialogue candidate">
+<div class="dialogue-label">Candidate</div>
+<p>When a token expires, just pause all <code>IntegrationRequest</code> for that workspace. This raises a question about whether <code>WorkflowExecution</code> needs to update its status to Pending (or something else) accordingly. Users may cancel a Pending workflow execution. When the integration setting is updated with a new token, continue if the user didn't cancel the execution yet.</p>
+</div>
+
+<h3>Final Architecture</h3>
+
+<p><strong>WorkflowDefinition Context (supporting)</strong> — workflow graph structure, step definitions, design-time data mapping validation. Produces a <code>WorkflowDefinition</code> value object that gets embedded into executions.</p>
+<p><strong>Execution Context</strong> — <code>WorkflowExecution</code> aggregate root (graph traversal, step tracking, branch merging) and <code>ActionExecution</code> aggregate root (retry logic, failure strategies). Events: <code>ActionStarted</code>, <code>ActionDone</code>, <code>ActionSkip</code>.</p>
+<p><strong>Integration Context</strong> — <code>IntegrationRequest</code> aggregate root (rate limiting, external API communication, global failure detection). Events: <code>IntegrationRequested</code>, <code>IntegrationRequestDone/Failed</code>, <code>IntegrationUnavailable</code>, <code>IntegrationRestored</code>.</p>
+
+<p><strong>Execution pipeline:</strong> Trigger fires → <code>WorkflowExecution</code> created → <code>StepExecution.start()</code> → <code>ActionStarted</code> → <code>ActionExecution.execute()</code> → <code>IntegrationRequested</code> → <code>IntegrationRequest</code> handles rate limiting and API call → result cascades back up through events → next step starts.</p>
+
+<h3>Refinements Discussed</h3>
+
+<ul>
+  <li><strong>Integration Health as a Read Model:</strong> Proactively monitor token expiry timestamps. Publish <code>IntegrationExpiring(workspaceId, integrationType, expiresIn: 30 minutes)</code> <em>before</em> it actually expires, preventing wasted executions.</li>
+  <li><strong>Step Output Schema as a First-Class Value Object:</strong> Formalize each step's output schema as <code>StepOutputSchema { fields: [name, type] }</code>. Makes validation declarative and enables autocomplete in the workflow builder UI.</li>
+  <li><strong>Execution Context Split:</strong> <code>WorkflowExecution</code> and <code>ActionExecution</code> could be in separate contexts if owned by different teams with different release cycles. But if they always change together, keep them together.</li>
+</ul>
+
+<span class="tag tag-pattern">Pipeline / Chain of Responsibility</span>
+<span class="tag tag-pattern">Value Object Snapshot (Versioning)</span>
+<span class="tag tag-concept">Rate Limiting as Aggregate</span>
+<span class="tag tag-concept">Design-Time vs Runtime Validation</span>
+<span class="tag tag-principle">Supporting Domain Separation</span>
+
+</div>
+</body>
+</html>
