@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet new:*)",
+      "Bash(mkdir -p src)",
+      "Bash(where dotnet:*)",
+      "Read(//c/Program Files/dotnet/**)",
+      "Read(//mnt/c/Program Files/dotnet/**)",
+      "Bash(cmd.exe /c \"where dotnet\")",
+      "Bash(export PATH=\"$PATH:/c/Program Files/dotnet\")",
+      "Bash(dotnet --version)",
+      "Bash(export PATH=\"$PATH:/c/Users/KevinNguyen.GRAPECITY/AppData/Local/Microsoft/dotnet\")",
+      "Bash(dotnet build:*)",
+      "Bash(find src:*)",
+      "Bash(echo \"exit: $?\")"
+    ]
+  }
+}

@@ -1,3 +1,4 @@
+Workflow Definition Context
 WorkSpace
     WorkSpaceId
     budget
@@ -47,6 +48,7 @@ ConditionStepDefinition : StepDefinition
     (e.g., "urgent" → [stepA], "normal" → [stepB])
 
 
+Workflow Execution context
 WorkflowExecution
     WorkflowExecutionId
     WorkflowVersionId
