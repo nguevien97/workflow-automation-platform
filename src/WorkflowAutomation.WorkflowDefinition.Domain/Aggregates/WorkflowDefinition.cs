@@ -1,7 +1,7 @@
 using WorkflowAutomation.SharedKernel.Domain;
-using WorkflowAutomation.WorkflowDefinition.Domain.Enums;
-using WorkflowAutomation.WorkflowDefinition.Domain.Events;
+using WorkflowAutomation.SharedKernel.Domain.Enums;
 using WorkflowAutomation.SharedKernel.Domain.Ids;
+using WorkflowAutomation.WorkflowDefinition.Domain.Events;
 using WorkflowAutomation.WorkflowDefinition.Domain.Ids;
 using WorkflowAutomation.WorkflowDefinition.Domain.StepDefinitions;
 

@@ -1,6 +1,5 @@
 using WorkflowAutomation.SharedKernel.Domain.Enums;
 using WorkflowAutomation.SharedKernel.Domain.Ids;
-using WorkflowAutomation.WorkflowDefinition.Domain.Enums;
 using WorkflowAutomation.WorkflowDefinition.Domain.ValueObjects;
 
 namespace WorkflowAutomation.WorkflowDefinition.Domain.StepDefinitions;

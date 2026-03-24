@@ -1,9 +1,1 @@
-namespace WorkflowAutomation.WorkflowDefinition.Domain.Enums;
-
-public enum StepType
-{
-    Trigger,
-    Action,
-    Condition,
-    Loop
-}
+// StepType has been moved to WorkflowAutomation.SharedKernel.Domain.Enums.StepType

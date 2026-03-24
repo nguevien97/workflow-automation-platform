@@ -1,14 +1,14 @@
+using WorkflowAutomation.SharedKernel.Domain.Enums;
 using WorkflowAutomation.SharedKernel.Domain.Ids;
-using WorkflowAutomation.WorkflowDefinition.Domain.Enums;
 
 namespace WorkflowAutomation.WorkflowDefinition.Domain.StepDefinitions;
 
 public sealed class ConditionStepDefinition : StepDefinition
 {
-    private readonly Dictionary<string, List<StepId>> _branches;
+    private readonly Dictionary<string, IReadOnlyList<StepId>> _branches;
 
     public string Expression { get; }
-    public IReadOnlyDictionary<string, List<StepId>> Branches => _branches.AsReadOnly();
+    public IReadOnlyDictionary<string, IReadOnlyList<StepId>> Branches => _branches.AsReadOnly();
 
     public ConditionStepDefinition(
         StepId id,
@@ -23,6 +23,6 @@ public sealed class ConditionStepDefinition : StepDefinition
         Expression = expression;
         _branches = branches.ToDictionary(
             kvp => kvp.Key,
-            kvp => new List<StepId>(kvp.Value));
+            kvp => (IReadOnlyList<StepId>)kvp.Value.AsReadOnly());
     }
 }

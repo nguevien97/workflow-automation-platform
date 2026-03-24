@@ -80,6 +80,11 @@ public sealed class ActionExecution : AggregateRoot<ActionExecutionId>
         StepDefinition.FailureStrategy == FailureStrategy.Retry &&
         RetryCount <= StepDefinition.MaxRetries;
 
+    /// <summary>
+    /// Cancels this action mid-execution — used when a sibling parallel
+    /// branch has failed with a Stop strategy.  Distinct from a Skip
+    /// (which is the step's own FailureStrategy).
+    /// </summary>
     public void Cancel()
     {
         if (Status is ActionExecutionStatus.Completed or ActionExecutionStatus.Cancelled)
@@ -87,7 +92,7 @@ public sealed class ActionExecution : AggregateRoot<ActionExecutionId>
                 $"Cannot cancel an action execution in '{Status}' status.");
 
         Status = ActionExecutionStatus.Cancelled;
-        AddDomainEvent(new ActionSkippedEvent(WorkflowExecutionId, StepExecutionId));
+        AddDomainEvent(new ActionCancelledEvent(WorkflowExecutionId, StepExecutionId));
     }
 
     private void GuardRunning(string operation)

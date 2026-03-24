@@ -1,10 +1,11 @@
 using WorkflowAutomation.SharedKernel.Domain;
 using WorkflowAutomation.SharedKernel.Domain.Ids;
+using WorkflowAutomation.WorkflowDefinition.Domain.Events;
 using WorkflowAutomation.WorkflowDefinition.Domain.Ids;
 
 namespace WorkflowAutomation.WorkflowDefinition.Domain.Entities;
 
-public sealed class Workflow : Entity<WorkflowId>
+public sealed class Workflow : AggregateRoot<WorkflowId>
 {
     public WorkSpaceId WorkSpaceId { get; }
     public string Name { get; private set; }
@@ -24,6 +25,7 @@ public sealed class Workflow : Entity<WorkflowId>
     public Aggregates.WorkflowDefinition CreateVersion()
     {
         var versionId = WorkflowVersionId.New();
+        AddDomainEvent(new WorkflowVersionCreatedEvent(Id, versionId));
         return new Aggregates.WorkflowDefinition(versionId, Id);
     }
 }

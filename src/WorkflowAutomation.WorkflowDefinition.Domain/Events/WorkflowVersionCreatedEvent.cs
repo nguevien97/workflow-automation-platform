@@ -4,11 +4,11 @@ using WorkflowAutomation.WorkflowDefinition.Domain.Ids;
 
 namespace WorkflowAutomation.WorkflowDefinition.Domain.Events;
 
-public sealed record WorkflowDefinitionCreatedEvent(
-    WorkflowVersionId WorkflowVersionId,
+public sealed record WorkflowVersionCreatedEvent(
     WorkflowId WorkflowId,
+    WorkflowVersionId WorkflowVersionId,
     DateTime OccurredOn) : IDomainEvent
 {
-    public WorkflowDefinitionCreatedEvent(WorkflowVersionId workflowVersionId, WorkflowId workflowId)
-        : this(workflowVersionId, workflowId, DateTime.UtcNow) { }
+    public WorkflowVersionCreatedEvent(WorkflowId workflowId, WorkflowVersionId workflowVersionId)
+        : this(workflowId, workflowVersionId, DateTime.UtcNow) { }
 }
