@@ -3,7 +3,7 @@ using WorkflowAutomation.SharedKernel.Domain.Ids;
 using WorkflowAutomation.WorkflowDefinition.Domain.Events;
 using WorkflowAutomation.WorkflowDefinition.Domain.Ids;
 
-namespace WorkflowAutomation.WorkflowDefinition.Domain.Entities;
+namespace WorkflowAutomation.WorkflowDefinition.Domain.Aggregates;
 
 public sealed class Workflow : AggregateRoot<WorkflowId>
 {
@@ -22,10 +22,10 @@ public sealed class Workflow : AggregateRoot<WorkflowId>
         Timeout = timeout;
     }
 
-    public Aggregates.WorkflowDefinition CreateVersion()
+    public WorkflowDefinition CreateVersion()
     {
         var versionId = WorkflowVersionId.New();
         AddDomainEvent(new WorkflowVersionCreatedEvent(Id, versionId));
-        return new Aggregates.WorkflowDefinition(versionId, Id);
+        return new WorkflowDefinition(versionId, Id);
     }
 }

@@ -3,7 +3,7 @@ using WorkflowAutomation.SharedKernel.Domain.Ids;
 using WorkflowAutomation.WorkflowDefinition.Domain.Ids;
 using WorkflowAutomation.WorkflowDefinition.Domain.ValueObjects;
 
-namespace WorkflowAutomation.WorkflowDefinition.Domain.Entities;
+namespace WorkflowAutomation.WorkflowDefinition.Domain.Aggregates;
 
 public sealed class WorkSpace : AggregateRoot<WorkSpaceId>
 {
