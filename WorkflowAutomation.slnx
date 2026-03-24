@@ -1,7 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/WorkflowAutomation.SharedKernel/WorkflowAutomation.SharedKernel.csproj" />
-    <Project Path="src/WorkflowAutomation.WorkflowDefinition/WorkflowAutomation.WorkflowDefinition.csproj" />
-    <Project Path="src/WorkflowAutomation.WorkflowExecution/WorkflowAutomation.WorkflowExecution.csproj" />
-  </Folder>
-</Solution>
