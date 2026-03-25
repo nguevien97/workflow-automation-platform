@@ -22,10 +22,10 @@ public sealed class Workflow : AggregateRoot<WorkflowId>
         Timeout = timeout;
     }
 
-    public WorkflowDefinition CreateVersion()
-    {
-        var versionId = WorkflowVersionId.New();
-        AddDomainEvent(new WorkflowVersionCreatedEvent(Id, versionId));
-        return new WorkflowDefinition(versionId, Id);
-    }
+    // public WorkflowDefinition CreateVersion()
+    // {
+    //     var versionId = WorkflowVersionId.New();
+    //     AddDomainEvent(new WorkflowVersionCreatedEvent(Id, versionId));
+    //     return new WorkflowDefinition(versionId, Id);
+    // }
 }

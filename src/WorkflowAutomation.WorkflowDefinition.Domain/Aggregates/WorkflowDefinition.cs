@@ -14,42 +14,13 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
     public WorkflowId WorkflowId { get; }
     public IReadOnlyList<StepDefinition> Steps => _steps.AsReadOnly();
 
-    public WorkflowDefinition(WorkflowVersionId id, WorkflowId workflowId)
+    public WorkflowDefinition(WorkflowVersionId id, WorkflowId workflowId, List<StepDefinition> steps)
         : base(id)
     {
         WorkflowId = workflowId;
+        _steps = steps ?? throw new ArgumentNullException(nameof(steps));
+        Validate();
         AddDomainEvent(new WorkflowDefinitionCreatedEvent(id, workflowId));
-    }
-
-    public void AddStep(StepDefinition step)
-    {
-        ArgumentNullException.ThrowIfNull(step);
-
-        if (_steps.Any(s => s.Id == step.Id))
-            throw new InvalidOperationException($"Step '{step.Id}' already exists in this workflow definition.");
-
-        _steps.Add(step);
-    }
-
-    public void RemoveStep(StepId stepId)
-    {
-        var step = _steps.FirstOrDefault(s => s.Id == stepId)
-            ?? throw new InvalidOperationException($"Step '{stepId}' not found in this workflow definition.");
-
-        _steps.Remove(step);
-    }
-
-    public StepDefinition? GetNextStep(StepId? currentStepId)
-    {
-        if (currentStepId is null)
-            return _steps.Count > 0 ? _steps[0] : null;
-
-        var index = _steps.FindIndex(s => s.Id == currentStepId.Value);
-        if (index < 0)
-            throw new InvalidOperationException($"Step '{currentStepId}' not found in this workflow definition.");
-
-        var nextIndex = index + 1;
-        return nextIndex < _steps.Count ? _steps[nextIndex] : null;
     }
 
     public StepDefinition GetStep(StepId stepId)
