@@ -19,8 +19,9 @@ public sealed class TriggerStepDefinition : StepDefinition
         IntegrationId integrationId,
         string commandName,
         Dictionary<string, string> configuration,
+        StepId nextStepId,
         StepOutputSchema? outputSchema = null)
-        : base(id, StepType.Trigger, name)
+        : base(id, StepType.Trigger, name, nextStepId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(commandName);
         ArgumentNullException.ThrowIfNull(configuration);
