@@ -1,28 +1,25 @@
 using WorkflowAutomation.SharedKernel.Domain.Enums;
 using WorkflowAutomation.SharedKernel.Domain.Ids;
+using WorkflowAutomation.WorkflowDefinition.Domain.ValueObjects;
 
 namespace WorkflowAutomation.WorkflowDefinition.Domain.StepDefinitions;
 
 public sealed class ConditionStepDefinition : StepDefinition
 {
-    private readonly Dictionary<string, IReadOnlyList<StepId>> _branches;
-
-    public string Expression { get; }
-    public IReadOnlyDictionary<string, IReadOnlyList<StepId>> Branches => _branches.AsReadOnly();
+    public IReadOnlyList<ConditionRule> Rules { get; }
+    public StepId? FallbackStepId { get; private set; }
 
     public ConditionStepDefinition(
         StepId id,
         string name,
-        string expression,
-        Dictionary<string, List<StepId>> branches)
-        : base(id, StepType.Condition, name)
+        IReadOnlyList<ConditionRule> rules,
+        StepId? nextStepId = null,
+        StepId? fallbackStepId = null)
+        : base(id, StepType.Condition, name, nextStepId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(expression);
-        ArgumentNullException.ThrowIfNull(branches);
+        ArgumentNullException.ThrowIfNull(rules);
 
-        Expression = expression;
-        _branches = branches.ToDictionary(
-            kvp => kvp.Key,
-            kvp => (IReadOnlyList<StepId>)kvp.Value.AsReadOnly());
+        Rules = rules;
+        FallbackStepId = fallbackStepId;
     }
 }

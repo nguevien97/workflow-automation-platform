@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Workflow Automation Platform</title>
+<style>
+:root {
+  --bg: #0f172a;
+  --bg2: #1e293b;
+  --text: #f8fafc;
+  --text2: #94a3b8;
+  --accent: #38bdf8;
+  --accent-bg: #102133;
+  --teal: #34d399;
+  --teal-bg: #063f30;
+  --coral: #fb7185;
+  --coral-bg: #5a1429;
+  --amber: #fbbf24;
+  --amber-bg: #52250c;
+  --blue: #818cf8;
+  --blue-bg: #15275e;
+  --border: #334155;
+  --code-bg: #1e293b;
+  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--font); color: var(--text); background: var(--bg); line-height: 1.75; }
+.container { max-width: 1200px; margin: 0 auto; padding: 40px 24px 80px; }
+h1 { font-size: 28px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+h2 { font-size: 22px; font-weight: 600; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--border); color: var(--text); }
+h3 { font-size: 18px; font-weight: 600; margin: 32px 0 12px; color: var(--text); }
+h4 { font-size: 16px; font-weight: 600; margin: 24px 0 8px; color: var(--text2); }
+p { margin: 12px 0; }
+.subtitle { font-size: 16px; color: var(--text2); margin-bottom: 32px; }
+.req-box {
+  background: var(--accent-bg);
+  border-left: 4px solid var(--accent);
+  padding: 20px 24px;
+  border-radius: 0 8px 8px 0;
+  margin: 20px 0;
+}
+.req-box h4 { color: var(--accent); margin-top: 0; }
+.warn-box {
+  background: var(--coral-bg);
+  border-left: 4px solid var(--coral);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin: 16px 0;
+}
+.warn-box strong { color: var(--coral); }
+.note-box {
+  background: var(--teal-bg);
+  border-left: 4px solid var(--teal);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin: 16px 0;
+}
+.note-box strong { color: var(--teal); }
+.insight-box {
+  background: var(--amber-bg);
+  border-left: 4px solid var(--amber);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin: 16px 0;
+}
+.insight-box strong { color: var(--amber); }
+.info-box {
+  background: var(--blue-bg);
+  border-left: 4px solid var(--blue);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin: 16px 0;
+}
+.info-box strong { color: var(--blue); }
+code {
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+pre {
+  background: var(--code-bg);
+  padding: 16px 20px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 12px 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  border: 1px solid var(--border);
+}
+ul, ol { margin: 8px 0 8px 24px; }
+li { margin: 4px 0; }
+.toc { background: var(--bg2); padding: 24px; border-radius: 12px; margin: 24px 0; }
+.toc h3 { margin-top: 0; }
+.toc a { color: var(--accent); text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.toc ol { margin-left: 20px; }
+.toc li { margin: 6px 0; }
+.section-divider { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
+.tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; margin: 2px 4px 2px 0; }
+.tag-req { background: var(--accent-bg); color: var(--accent); }
+.tag-arch { background: var(--teal-bg); color: var(--teal); }
+.tag-pressure { background: var(--coral-bg); color: var(--coral); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Workflow Automation Platform</h1>
+<p class="subtitle">Complete Requirements Specification</p>
+
+<div class="toc">
+<h3>Table of Contents</h3>
+<ol>
+  <li><a href="#r1">Workspace &amp; Workflows</a></li>
+  <li><a href="#r2">Step Types (Trigger, Action)</a></li>
+  <li><a href="#r3">Integrations &amp; Credentials</a></li>
+  <li><a href="#r4">Data Mapping &amp; Template References</a></li>
+  <li><a href="#r5">Versioning</a></li>
+  <li><a href="#r6">Execution &amp; Failure Strategies</a></li>
+  <li><a href="#r7">Rate Limiting</a></li>
+  <li><a href="#r8">Branching, Parallel Execution &amp; Loops</a></li>
+  <li><a href="#r9">Webhook Triggers &amp; Deduplication</a></li>
+  <li><a href="#r10">Execution Timeout &amp; Cost Budgets</a></li>
+  <li><a href="#r11">Secrets &amp; Variable Scoping</a></li>
+  <li><a href="#r12">Integration Definition Framework</a></li>
+  <li><a href="#r13">Custom Integrations</a></li>
+  <li><a href="#r14">Webhook Management</a></li>
+  <li><a href="#r15">OAuth Token Lifecycle</a></li>
+  <li><a href="#r16">Rate Limit Discovery &amp; Adaptation</a></li>
+  <li><a href="#pressure">Architecture &amp; Performance Pressure</a></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="r1">1. Workspace &amp; Workflows</h2>
+<!-- ============================================================ -->
+
+<p>A <strong>Workspace</strong> belongs to an organization. Users within the workspace create <strong>Workflows</strong>. A workflow is a Directed Acyclic Graph (DAG) of <strong>Steps</strong> that execute when triggered. A workflow has exactly one Trigger step as its entry point. Multiple executions of the same workflow can overlap (e.g., a scheduled workflow running every 15 minutes might still be processing the previous run when the next one triggers).</p>
+
+<!-- ============================================================ -->
+<h2 id="r2">2. Step Types (Trigger, Action)</h2>
+<!-- ============================================================ -->
+
+<p>Each step has a <code>StepId</code>, <code>StepType</code>, <code>Name</code>, and <code>NextStepId</code> (the step that executes after this one completes; null if last in its chain). There are five step types total — Trigger and Action are covered here; Condition, Parallel, and Loop are covered in <a href="#r8">Requirement 8</a>.</p>
+
+<h3>2.1 Trigger Step</h3>
+<p>The entry point of the workflow. Exactly one per workflow. Connected to an integration and a command (e.g., Slack "new message", Google Sheets "new row"). Can be event-based (webhook) or schedule-based ("every Monday at 9am").</p>
+<ul>
+  <li><code>IntegrationId</code> — which integration this trigger uses</li>
+  <li><code>CommandName</code> — which trigger command (e.g., "newMessage")</li>
+  <li><code>Configuration</code> — trigger-specific settings (e.g., which Slack channel)</li>
+  <li><code>OutputSchema</code> — <strong>required</strong>, declares the fields this trigger produces</li>
+  <li>No <code>InputMappings</code> (no upstream step)</li>
+  <li>No <code>FailureStrategy</code> (entry point, not a fallible step)</li>
+</ul>
+
+<h3>2.2 Action Step</h3>
+<p>Calls an external service through an integration.</p>
+<ul>
+  <li><code>IntegrationId</code> — which integration this action uses</li>
+  <li><code>CommandName</code> — which action command (e.g., "sendMessage")</li>
+  <li><code>InputMappings</code> — dictionary of field name → literal value or template reference</li>
+  <li><code>OutputSchema</code> — <strong>required</strong>, declares the fields this action produces</li>
+  <li><code>FailureStrategy</code> — Stop (halt workflow), Skip (continue), or Retry(N) (retry N times then stop)</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="r3">3. Integrations &amp; Credentials</h2>
+<!-- ============================================================ -->
+
+<p>Steps connect to external services through <strong>Integrations</strong>. An integration holds the OAuth credentials and configuration for a specific service (e.g., the workspace's Slack integration). Integrations are <strong>per-workspace</strong> — shared by all users and all workflows in that organization. Multiple workflows can share the same integration.</p>
+
+<!-- ============================================================ -->
+<h2 id="r4">4. Data Mapping &amp; Template References</h2>
+<!-- ============================================================ -->
+
+<p>Each step produces an output defined by its <code>OutputSchema</code>. Subsequent steps can reference outputs from upstream steps using template syntax: <code>{{stepId.fieldName}}</code>. For example: <code>New urgent email from {{trigger.sender}} about {{trigger.subject}}</code>.</p>
+
+<p>Template references must be validated at design time (when the workflow is saved):</p>
+<ul>
+  <li>The referenced step must exist in the workflow</li>
+  <li>The referenced step must be <strong>guaranteed to have completed</strong> before the current step executes (see <a href="#r8">Section 8.3</a> for complete rules)</li>
+  <li>The referenced field must exist in the referenced step's <code>OutputSchema</code></li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="r5">5. Versioning</h2>
+<!-- ============================================================ -->
+
+<p>When a user modifies a workflow, currently running executions must complete using the <strong>old version</strong>. New triggers use the <strong>new version</strong>. Multiple versions can be executing simultaneously.</p>
+
+<div class="note-box">
+<strong>Implementation:</strong> The <code>WorkflowDefinition</code> is embedded as a value object snapshot inside each <code>WorkflowExecution</code>. Running executions are completely isolated from subsequent edits because they carry their own frozen copy of the definition.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="r6">6. Execution &amp; Failure Strategies</h2>
+<!-- ============================================================ -->
+
+<p>When a workflow is triggered, the system creates an <strong>Execution</strong> that walks through the steps. Each step execution can succeed, fail, or timeout.</p>
+
+<p>If a step fails, the user-configured failure strategy applies:</p>
+<ul>
+  <li><strong>Stop</strong> — halt the entire workflow, mark as failed</li>
+  <li><strong>Skip</strong> — mark the step as skipped (output is null), continue to the next step</li>
+  <li><strong>Retry(N)</strong> — retry up to N times with backoff; if still failing after N retries, stop the workflow</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="r7">7. Rate Limiting</h2>
+<!-- ============================================================ -->
+
+<p>External services have API rate limits. If 50 workflows all try to send a Slack message at the same second, the platform must queue and throttle them. Rate limits are <strong>per-integration-instance</strong> (one Slack workspace token), not per-workflow.</p>
+
+<!-- ============================================================ -->
+<h2 id="r8">8. Branching, Parallel Execution &amp; Loops</h2>
+<!-- ============================================================ -->
+
+<div class="req-box">
+<h4>Overview</h4>
+<p>The workflow DAG supports branching (conditions), parallel execution (fork/merge), and iteration (loops). This section defines three additional step types — Condition, Parallel, and Loop — along with the DAG structure, template reference validation rules, and execution semantics.</p>
+</div>
+
+<h3>8.1 Condition Step</h3>
+
+<p>A branching point that evaluates rules and routes execution to exactly <strong>one</strong> branch. Follows the Zapier "Paths" model: first match wins.</p>
+
+<p>Contains an ordered list of <code>ConditionRule</code> value objects. Each rule has:</p>
+<ul>
+  <li><code>Condition</code> — a boolean expression (e.g., <code>"{{trigger.priority}} == 'urgent'"</code>, <code>"{{trigger.amount}} > 1000 AND {{trigger.department}} == 'finance'"</code>)</li>
+  <li><code>BranchEntryStepId</code> — the <code>StepId</code> of the first step in the branch to execute if this rule matches</li>
+</ul>
+
+<p>Rules are evaluated top-to-bottom. The <strong>first rule whose condition evaluates to true</strong> wins, and execution goes to that rule's <code>BranchEntryStepId</code>.</p>
+
+<p>Additional fields:</p>
+<ul>
+  <li><code>FallbackBranchEntryStepId</code> — optional; if no rule matches, execution goes here. If no fallback is defined and no rule matches, the workflow fails with a "no matching condition" error.</li>
+  <li><code>NextStepId</code> — the continuation point after the winning branch completes (the step that runs after the branch's last step finishes)</li>
+</ul>
+
+<p>Each branch is a chain of steps linked by <code>NextStepId</code>. The last step in the branch has <code>NextStepId = null</code>. After the winning branch completes, execution continues to the condition step's own <code>NextStepId</code>.</p>
+
+<div class="warn-box">
+<strong>Only one branch executes.</strong> There is no parallel execution from a condition step. A condition does NOT produce output. It does not have an <code>OutputSchema</code>, <code>InputMappings</code>, or <code>FailureStrategy</code>.
+</div>
+
+<h3>8.2 Parallel Step</h3>
+
+<p>A fork point that executes <strong>all branches simultaneously</strong> and waits for all to complete before continuing. This is a distinct step type from Condition.</p>
+
+<ul>
+  <li><code>BranchEntryStepIds</code> — list of <code>StepId</code>s, one for the first step of each parallel branch. Must have at least two entries.</li>
+  <li><code>NextStepId</code> — the <strong>merge point</strong>; the step that executes after all branches complete</li>
+</ul>
+
+<p>Each branch is a chain of steps linked by <code>NextStepId</code>. The last step in each branch has <code>NextStepId = null</code>.</p>
+
+<h4>Failure Semantics</h4>
+<p>Each branch's steps have their own individual failure strategies (Stop, Skip, Retry). These apply at the step level within the branch.</p>
+
+<ul>
+  <li>If a step in a branch fails with <strong>Stop</strong> strategy: all other still-running branches are <strong>cancelled mid-execution</strong>, and the workflow fails.</li>
+  <li>If a step in a branch fails with <strong>Skip</strong> strategy: the step is marked as skipped with null output, the branch continues to its next step. The merge step receives null for the skipped step's output.</li>
+</ul>
+
+<p>A parallel step does NOT have a condition expression, rules, input mappings, output schema, or failure strategy.</p>
+
+<h3>8.3 Loop Step</h3>
+
+<p>Iterates over an array from an upstream step's output and executes a sub-workflow for each item.</p>
+
+<ul>
+  <li><code>SourceArray</code> — a template reference pointing to an array field from an upstream step (e.g., <code>{{step1.rows}}</code>)</li>
+  <li><code>Body</code> — a <code>LoopBodyDefinition</code> value object (<strong>embedded</strong>, not a separate aggregate) containing:
+    <ul>
+      <li><code>TriggerOutputSchema</code> — the schema of a single item from the source array. Acts as the "trigger" for each iteration; body steps reference item fields via <code>{{trigger.fieldName}}</code></li>
+      <li><code>Steps</code> — the body's step chain (a mini-workflow with its own step definitions linked by <code>NextStepId</code>)</li>
+    </ul>
+  </li>
+  <li><code>ConcurrencyMode</code> — Sequential or Parallel(maxN)</li>
+  <li><code>IterationFailureStrategy</code> — StopAll (cancel remaining iterations) or Skip (skip the failed iteration, continue with others)</li>
+  <li><code>NextStepId</code> — the step after the loop completes</li>
+</ul>
+
+<p>The loop step's output is an array of all iteration results (the output of the last step in each iteration's body).</p>
+
+<h4>Parent Context Access</h4>
+<p>Steps inside the loop body can reference outputs from steps upstream of the loop in the parent workflow (e.g., <code>{{parentStep.apiKey}}</code>). At execution time, the parent <code>WorkflowExecution</code> passes upstream outputs as <code>ParentContext</code> into each iteration's execution.</p>
+
+<h4>Embedded Body, Separate Execution</h4>
+<p>The loop body is embedded as a value object in the <code>WorkflowDefinition</code> for design-time validation. At execution time, each iteration spawns a separate <code>WorkflowExecution</code> with the body's definition snapshot and the parent context.</p>
+
+<h4>Two Levels of Failure Handling</h4>
+<div class="info-box">
+<strong>Step-level (inside the loop body):</strong> A step inside the body fails. The step's own <code>FailureStrategy</code> applies first: Retry 3 times? Skip this step? Stop the body? This is resolved within the iteration's execution.
+<br><br>
+<strong>Iteration-level (on the loop step):</strong> The entire iteration's execution fails (a step with Stop strategy failed after exhausting retries). Now the loop's <code>IterationFailureStrategy</code> applies: StopAll remaining iterations? Skip this iteration?
+<br><br>
+<strong>Example:</strong> A loop body has Step D with <code>FailureStrategy = Retry(3)</code>. Step D fails. It retries 3 times. Still fails. Step D's strategy after retries is Stop → the iteration fails. The loop's <code>IterationFailureStrategy</code> is Skip → this iteration is skipped, remaining iterations continue.
+</div>
+
+<h3>8.4 DAG Structure</h3>
+
+<p>All steps (including those inside condition branches and parallel branches) live in a <strong>flat dictionary</strong> within the <code>WorkflowDefinition</code> aggregate. The graph structure is defined by:</p>
+
+<ul>
+  <li><code>NextStepId</code> on each step (linear sequencing)</li>
+  <li><code>ConditionRule.BranchEntryStepId</code> on condition steps (conditional branching)</li>
+  <li><code>BranchEntryStepIds</code> on parallel steps (parallel forking)</li>
+  <li><code>LoopBodyDefinition.Steps</code> on loop steps (nested sub-workflow)</li>
+</ul>
+
+<p>The <code>WorkflowDefinition</code> constructor receives all steps and validates the complete graph in one pass. The aggregate is <strong>never in an invalid state</strong>.</p>
+
+<h3>8.5 Template Reference Validation Rules</h3>
+
+<p>Each step's input mappings can contain template references like <code>{{stepA.fieldName}}</code>. These must be validated at design time against the following rules.</p>
+
+<h4>8.5.1 Guaranteed Completion Rule</h4>
+
+<p>A step can only reference outputs from steps that are <strong>guaranteed to have completed</strong> before it executes:</p>
+
+<div class="req-box">
+<h4>Reference Rules by Position</h4>
+<p><strong>Top-level linear step:</strong> Can reference any step earlier in the top-level sequence.</p>
+
+<p><strong>Step inside a condition branch:</strong> Can reference steps upstream of the <code>ConditionStepDefinition</code> in the parent sequence, and earlier steps within the <strong>same branch</strong>. CANNOT reference steps in other condition branches (they don't execute).</p>
+
+<p><strong>Step inside a parallel branch:</strong> Can reference steps upstream of the <code>ParallelStepDefinition</code> in the parent sequence, and earlier steps within the <strong>same branch</strong>. CANNOT reference steps in <strong>sibling parallel branches</strong> (they may not have completed, or may fail).</p>
+
+<p><strong>The merge step</strong> (step after a <code>ParallelStepDefinition</code>): Can reference all steps upstream of the parallel step AND steps from <strong>all parallel branches</strong> (all branches are guaranteed complete before the merge step runs).</p>
+
+<p><strong>Step inside a loop body:</strong> Can reference steps upstream of the <code>LoopStepDefinition</code> in the parent workflow, the loop iteration item (via <code>{{trigger.fieldName}}</code>), and earlier steps within the loop body. CANNOT reference steps downstream of the loop in the parent workflow.</p>
+</div>
+
+<h4>8.5.2 Field Existence Rule</h4>
+<p>A template reference <code>{{stepA.fieldName}}</code> must point to a field that exists in <code>stepA</code>'s declared <code>OutputSchema</code>. If <code>stepA</code> has output schema <code>{messageId: string, timestamp: string}</code>, then <code>{{stepA.timestamp}}</code> is valid but <code>{{stepA.channel}}</code> is rejected at design time.</p>
+
+<h4>8.5.3 Null Safety for Parallel Branches</h4>
+<p>If a step after a parallel merge references <code>{{branchStep.field}}</code> where <code>branchStep</code> is inside a parallel branch, the reference is valid (the branch is guaranteed to have completed). However, if <code>branchStep</code> was skipped due to a failure with Skip strategy, the value will be <code>null</code> at runtime. The design-time validator should <strong>warn</strong> (not error) about this possibility. The runtime template resolver treats null references as empty strings or null values depending on the target field type.</p>
+
+<h3>8.6 DAG Validation Rules</h3>
+
+<p>All performed in the <code>WorkflowDefinition</code> constructor:</p>
+
+<ol>
+  <li><strong>Exactly one trigger:</strong> The workflow must have exactly one <code>TriggerStepDefinition</code> and it must be the entry point.</li>
+  <li><strong>No cycles:</strong> The graph formed by <code>NextStepId</code> links and branch entry points must be acyclic.</li>
+  <li><strong>All references exist:</strong> Every <code>StepId</code> referenced in <code>NextStepId</code>, <code>ConditionRule.BranchEntryStepId</code>, <code>FallbackBranchEntryStepId</code>, and <code>BranchEntryStepIds</code> must correspond to a step in the workflow.</li>
+  <li><strong>All steps reachable:</strong> Every step must be reachable from the trigger by following the graph.</li>
+  <li><strong>Template references valid:</strong> Every template reference must satisfy the Guaranteed Completion Rule (8.5.1) and the Field Existence Rule (8.5.2).</li>
+  <li><strong>Branch last steps:</strong> The last step in every condition branch and parallel branch must have <code>NextStepId = null</code>.</li>
+  <li><strong>Condition rules:</strong> A <code>ConditionStepDefinition</code> must have at least one <code>ConditionRule</code>.</li>
+  <li><strong>Parallel branches:</strong> A <code>ParallelStepDefinition</code> must have at least two <code>BranchEntryStepIds</code>.</li>
+  <li><strong>Loop source type:</strong> The <code>SourceArray</code> template reference on a <code>LoopStepDefinition</code> must point to a field whose type is <code>array</code> in the upstream step's output schema.</li>
+  <li><strong>Output schemas required:</strong> <code>TriggerStepDefinition</code> and <code>ActionStepDefinition</code> must have non-null <code>OutputSchema</code>.</li>
+</ol>
+
+<h3>8.7 Execution Semantics</h3>
+
+<h4>8.7.1 Condition Execution</h4>
+<ol>
+  <li>Evaluate each rule's condition expression top-to-bottom using outputs from completed upstream steps</li>
+  <li>The first rule that evaluates to <code>true</code> wins</li>
+  <li>If no rule matches and a fallback exists, take the fallback branch</li>
+  <li>If no rule matches and no fallback exists, fail the workflow</li>
+  <li>Execute the winning branch's step chain</li>
+  <li>When the branch's last step completes (its <code>NextStepId</code> is null), continue to the condition step's <code>NextStepId</code></li>
+</ol>
+
+<h4>8.7.2 Parallel Execution</h4>
+<ol>
+  <li>Create a <code>StepExecution</code> for the first step of <strong>every</strong> branch simultaneously</li>
+  <li>Each branch executes independently</li>
+  <li>When a branch's last step completes, check if <strong>all</strong> branches are done</li>
+  <li>If all branches are done, continue to the parallel step's <code>NextStepId</code> (merge point)</li>
+  <li>If a branch step fails with Stop strategy: cancel all other running branches, fail the workflow</li>
+  <li>If a branch step fails with Skip strategy: the step is skipped with null output, the branch continues</li>
+</ol>
+
+<h4>8.7.3 Loop Execution</h4>
+<ol>
+  <li>Resolve the <code>SourceArray</code> template reference to get the array</li>
+  <li>Collect upstream step outputs as <code>ParentContext</code></li>
+  <li>For each item in the array, create a child <code>WorkflowExecution</code> with the body's definition snapshot, the iteration item as trigger output, and the <code>ParentContext</code></li>
+  <li>Execute iterations according to <code>ConcurrencyMode</code>:
+    <ul>
+      <li>Sequential: one at a time, in order</li>
+      <li>Parallel(maxN): up to N concurrent iterations, respecting rate limits</li>
+    </ul>
+  </li>
+  <li>If an iteration fails:
+    <ul>
+      <li>StopAll: cancel all remaining/running iterations, fail the loop step</li>
+      <li>Skip: record null for that iteration's result, continue</li>
+    </ul>
+  </li>
+  <li>When all iterations complete, the loop step's output is an array of all iteration results</li>
+  <li>Continue to the loop step's <code>NextStepId</code></li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="r9">9. Webhook Triggers &amp; Deduplication</h2>
+<!-- ============================================================ -->
+
+<p>External services can trigger workflows via webhook. The platform exposes a unique URL per workflow (e.g., <code>https://platform.com/webhooks/{workflowId}</code>). The external service sends HTTP POST requests to this URL.</p>
+
+<p>Webhooks are unreliable — the sender might retry, delivering the same event multiple times. The system must deduplicate webhook deliveries within a <strong>5-minute window</strong> using an idempotency key. Additionally, webhook payloads must be validated against a user-defined JSON schema before triggering the workflow. Invalid payloads are logged but do not create executions.</p>
+
+<!-- ============================================================ -->
+<h2 id="r10">10. Execution Timeout &amp; Cost Budgets</h2>
+<!-- ============================================================ -->
+
+<p>Each workflow has a maximum execution timeout (default 30 minutes, configurable up to 24 hours for long-running data pipelines).</p>
+
+<p>Each workspace has a monthly <strong>execution budget</strong> measured in total step executions:</p>
+<ul>
+  <li>Free workspace: 1,000 step executions/month</li>
+  <li>Paid workspace: 50,000 step executions/month</li>
+</ul>
+
+<p>When the budget is exhausted, scheduled triggers stop firing. Webhook triggers still create executions that immediately fail with a "budget exceeded" error (so the webhook sender gets feedback). Budget tracking must be accurate under concurrent execution — 20 workflows finishing simultaneously must not overshoot the budget.</p>
+
+<!-- ============================================================ -->
+<h2 id="r11">11. Secrets &amp; Variable Scoping</h2>
+<!-- ============================================================ -->
+
+<p>Workspaces have <strong>environment variables</strong> (e.g., <code>API_KEY</code>, <code>DATABASE_URL</code>) that can be referenced in step configurations using <code>{{env.VARIABLE_NAME}}</code>. Variables have scopes — narrower scope wins:</p>
+<ol>
+  <li><strong>Workspace-level</strong> — shared by all workflows</li>
+  <li><strong>Workflow-level</strong> — overrides workspace defaults for one workflow</li>
+  <li><strong>Execution-level</strong> — passed in at trigger time (e.g., webhook payload fields)</li>
+</ol>
+
+<p><strong>Secrets</strong> are environment variables marked as sensitive. They must never appear in execution logs — the system must redact them from step outputs before persisting.</p>
+
+<!-- ============================================================ -->
+<h2 id="r12">12. Integration Definition Framework</h2>
+<!-- ============================================================ -->
+
+<p>Integrations are not hardcoded. The platform supports a <strong>plugin architecture</strong> where each integration is defined declaratively. An integration definition contains:</p>
+
+<h3>12.1 Authentication Spec</h3>
+<p>The type of auth (OAuth2, API key, Basic Auth, database connection, custom token refresh), the endpoints for auth flow, token refresh logic, and what headers/query params the token gets attached to. OAuth2 has variations: authorization code flow, client credentials flow, PKCE. Some services require per-store OAuth (Shopify). Others use workspace-level tokens (Slack). Database integrations define connection fields per DBMS (PostgreSQL: host/port/database/username/password/sslMode; MongoDB: connectionUri; SQL Server: server/database/authMethod).</p>
+
+<h3>12.2 Action Catalog</h3>
+<p>Each integration exposes a set of actions. Each action has an <strong>input schema</strong>, an <strong>output schema</strong>, and a <strong>protocol spec</strong>. The protocol spec includes a <code>protocol</code> field that routes to the correct executor:</p>
+<ul>
+  <li><code>http</code> — method, URL template, headers, body template (covers REST, GraphQL, SOAP)</li>
+  <li><code>database</code> — dbType, query template</li>
+  <li><code>smtp</code> — to, subject, body templates</li>
+</ul>
+<p>The execution engine reads the protocol spec and dispatches to the correct executor. Adding a new integration means writing a JSON definition, not code.</p>
+
+<h3>12.3 Trigger Catalog</h3>
+<p>Each integration can expose triggers. Two types:</p>
+<ul>
+  <li><strong>Webhook-based:</strong> external service pushes events to the platform's endpoint</li>
+  <li><strong>Polling-based:</strong> platform periodically calls the API and diffs against a cursor (timestamp, page token, or row ID). Cursor persists per-workflow, not per-integration.</li>
+</ul>
+
+<h3>12.4 Response Mapping</h3>
+<p>A declarative JSONPath-based mapping that extracts data from the raw API response, detects errors, and normalizes the output to match the declared output schema. One generic mapper handles all integrations.</p>
+
+<h3>12.5 Pagination</h3>
+<p>The integration definition specifies the pagination strategy: cursor-based, offset-based, or page-number-based. The execution engine auto-paginates and aggregates all pages into a single output array.</p>
+
+<!-- ============================================================ -->
+<h2 id="r13">13. Custom Integrations</h2>
+<!-- ============================================================ -->
+
+<p>Users can create their own integrations within their workspace. Custom integrations are <strong>HTTP-only</strong>. The user defines:</p>
+<ul>
+  <li>Base URL and auth method (API key, Bearer token, Basic Auth)</li>
+  <li>Actions: HTTP method, endpoint path, request body template, and output schema</li>
+</ul>
+
+<p>Output schema can be defined manually or discovered via a <strong>"Test this step"</strong> feature that makes a real API call, receives the response, and auto-infers the schema by walking the JSON structure.</p>
+
+<p>Custom integrations follow the exact same execution path as built-in integrations. The execution engine does not distinguish between them.</p>
+
+<!-- ============================================================ -->
+<h2 id="r14">14. Webhook Management</h2>
+<!-- ============================================================ -->
+
+<p>For webhook-based triggers, the platform manages webhook registration with external services. When a workflow is activated, the platform calls the external service's API to register a webhook URL. When deactivated or deleted, the platform deregisters. If registration fails, the workflow cannot be activated.</p>
+
+<p>Services require webhook signature verification — each using different schemes (Slack: HMAC-SHA256 with <code>X-Slack-Signature</code>, Stripe: HMAC-SHA256 with <code>Stripe-Signature</code>, etc.). The integration definition declares the verification method.</p>
+
+<p>Webhook URLs are unique per workflow. Two workflows triggering on the same event get separate webhook registrations and separate incoming URLs.</p>
+
+<!-- ============================================================ -->
+<h2 id="r15">15. OAuth Token Lifecycle</h2>
+<!-- ============================================================ -->
+
+<p>OAuth tokens expire. The platform must proactively refresh tokens before they expire. If a refresh fails, all workflows using that integration must pause, and the user must be notified to re-authorize.</p>
+
+<div class="warn-box">
+<strong>Critical:</strong> Token refresh must be <strong>serialized per integration instance</strong>. If 10 workflows simultaneously discover the token is expired, they must not all attempt to refresh concurrently. Some providers rotate the refresh token on each use — concurrent refresh attempts cause a race condition where the first refresh invalidates the token the second is using.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="r16">16. Rate Limit Discovery &amp; Adaptation</h2>
+<!-- ============================================================ -->
+
+<p>Different APIs express rate limits differently. The integration definition declares the rate limit strategy:</p>
+<ul>
+  <li><strong>Header-based:</strong> read remaining/reset headers from every response and adjust (Slack, GitHub)</li>
+  <li><strong>Reactive:</strong> handle 429s with exponential backoff (Notion)</li>
+  <li><strong>Configured:</strong> hardcoded limit set by the user</li>
+</ul>
+
+<p>The rate limiter adapts in real-time — if the response says "3 requests remaining, resets in 45 seconds," queue the next requests accordingly. Some APIs have multiple rate limit tiers (Shopify: per-minute + daily limits).</p>
+
+<!-- ============================================================ -->
+<h2 id="pressure">Architecture &amp; Performance Pressure</h2>
+<!-- ============================================================ -->
+
+<h3>Pressure 1 — Execution Engine Hot Path</h3>
+<p>A large workspace has 200 active workflows, 50 scheduled to run every minute. That's 400 step executions per minute sustained, with spikes of 50 concurrent workflow starts. The execution engine must scale horizontally. <code>WorkflowExecution</code> and <code>ActionExecution</code> can be processed by different workers.</p>
+
+<h3>Pressure 2 — Rate Limiter Under Contention</h3>
+<p>30 workflows in the same workspace all use Slack (50 requests/minute limit). During a spike, 30 workflows each try to send a Slack message within 10 seconds. The rate limiter must queue excess requests and drain at the allowed rate. If queued requests exceed the step's timeout, the step fails.</p>
+
+<h3>Pressure 3 — Execution Log Query Performance</h3>
+<p>100,000 executions per month per workspace. The UI must return paginated, filtered results within 500ms. Execution logs may belong in a separate read-model database.</p>
+
+<h3>Pressure 4 — Workflow Version Migration</h3>
+<p>A workflow edited 47 times should garbage-collect versions that have no running executions and are not the current active version.</p>
+
+<h3>Pressure 5 — For-Each with 50,000 Items</h3>
+<p>A loop iterating 50,000 times with max concurrency 10 and external API rate limit 100/minute runs for ~8 hours. The execution must be <strong>resumable</strong> — if the worker crashes at iteration 23,000, it picks up without re-processing. Requires checkpointing.</p>
+
+<h3>Pressure 6 — Integration Hot-Swap</h3>
+<p>Updated integration definitions must not break running executions. Running executions use the old definition. <code>ActionExecution</code> carries a snapshot of the integration definition.</p>
+
+<h3>Pressure 7 — Multi-Tenant Token Isolation</h3>
+<p>10,000 workspaces with encrypted-at-rest tokens. Token refresh for Workspace A must never leak to or corrupt Workspace B's token.</p>
+
+<h3>Pressure 8 — Observability per Integration</h3>
+<p>Cross-tenant read model showing per-integration-type error rate, latency, rate limit headroom, and token health. A Slack outage should be detectable within 2 minutes. Must not expose tenant-specific data.</p>
+
+</div>
+</body>
+</html>

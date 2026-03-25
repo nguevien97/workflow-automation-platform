@@ -1,3 +1,4 @@
 .sfdx/
 bin/
 obj/
+.vs/

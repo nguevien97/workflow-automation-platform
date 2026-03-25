@@ -8,22 +8,25 @@ namespace WorkflowAutomation.WorkflowDefinition.Domain.StepDefinitions;
 public sealed class LoopStepDefinition : StepDefinition
 {
     public TemplateReference SourceArray { get; }
-    public WorkflowVersionId BodyWorkflowVersionId { get; }
+    public StepOutputSchema TriggerOutputSchema { get; }
+    public IReadOnlyList<StepDefinition> Steps { get; }
     public ConcurrencyMode ConcurrencyMode { get; }
     public int? MaxConcurrency { get; }
-    public FailureStrategy IterationFailureStrategy { get; }
+    public IterationFailureStrategy IterationFailureStrategy { get; }
     public int RetryCount { get; }
 
     public LoopStepDefinition(
         StepId id,
         string name,
         TemplateReference sourceArray,
-        WorkflowVersionId bodyWorkflowVersionId,
+        StepOutputSchema triggerOutputSchema,
+        IReadOnlyList<StepDefinition> steps,
         ConcurrencyMode concurrencyMode,
-        FailureStrategy iterationFailureStrategy,
+        IterationFailureStrategy iterationFailureStrategy,
         int retryCount = 0,
+        StepId? nextStepId = null,
         int? maxConcurrency = null)
-        : base(id, StepType.Loop, name)
+        : base(id, StepType.Loop, name, nextStepId)
     {
         ArgumentNullException.ThrowIfNull(sourceArray);
         ArgumentOutOfRangeException.ThrowIfNegative(retryCount);
@@ -31,11 +34,9 @@ public sealed class LoopStepDefinition : StepDefinition
         if (concurrencyMode == ConcurrencyMode.Parallel && maxConcurrency.HasValue)
             ArgumentOutOfRangeException.ThrowIfLessThan(maxConcurrency.Value, 1);
 
-        if (iterationFailureStrategy == FailureStrategy.Retry && retryCount <= 0)
-            throw new ArgumentException("RetryCount must be greater than zero when IterationFailureStrategy is Retry.", nameof(retryCount));
-
         SourceArray = sourceArray;
-        BodyWorkflowVersionId = bodyWorkflowVersionId;
+        TriggerOutputSchema = triggerOutputSchema;
+        Steps = steps;
         ConcurrencyMode = concurrencyMode;
         MaxConcurrency = maxConcurrency;
         IterationFailureStrategy = iterationFailureStrategy;

@@ -5,5 +5,6 @@ public enum StepType
     Trigger,
     Action,
     Condition,
-    Loop
+    Parallel,
+    Loop,
 }

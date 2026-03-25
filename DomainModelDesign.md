@@ -18,6 +18,13 @@ WorkflowDefinition
     WorkflowVersionId
     StepDefinitions
 
+A step can only reference steps in its "guaranteed completed" set:
+    All steps that are ancestors of the current step following the same execution path
+    For steps inside a parallel branch: ancestors of the ParallelStepDefinition + earlier steps within the same branch
+    For steps inside a condition branch: ancestors of the ConditionStepDefinition + earlier steps within the same branch
+    For steps inside a loop body: ancestors of the LoopStepDefinition + earlier steps within the same body + the loop iteration item
+    For the merge step (after parallel/condition): everything above + outputs from all branches
+
 StepDefinition (base)
     stepId
     type: Trigger | Action | Condition
