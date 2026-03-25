@@ -23,8 +23,9 @@ public sealed class ActionStepDefinition : StepDefinition
         Dictionary<string, TemplateOrLiteral> inputMappings,
         FailureStrategy failureStrategy,
         int retryCount = 0,
-        StepOutputSchema? outputSchema = null)
-        : base(id, StepType.Action, name)
+        StepOutputSchema? outputSchema = null,
+        StepId? nextStepId = null)
+        : base(id, StepType.Action, name, nextStepId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(commandName);
         ArgumentNullException.ThrowIfNull(inputMappings);
