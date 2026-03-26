@@ -55,18 +55,25 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
             return step;
         }
 
+        var duplicateNames = _steps.GroupBy(s => s.Name)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToList();
+        if (duplicateNames.Count > 0)
+            throw new InvalidOperationException($"Duplicate step names: {string.Join(", ", duplicateNames)}");
+
         var visitStates = new Dictionary<StepId, VisitState>();
         _steps.ForEach(s => visitStates[s.Id] = VisitState.NotVisited);
         visitStates[triggerStep.Id] = VisitState.Completed; // Mark trigger step as completed to allow downstream steps to reference it
         void DFS(StepId stepId, HashSet<StepId> availableSteps)
         {
+            var step = GetStep(stepId);
             if (visitStates[stepId] != VisitState.NotVisited)
             {
                 throw new InvalidOperationException($"Workflow definition contains a cycle at step '{GetStep(stepId).Name}'.");
             }
 
             visitStates[stepId] = VisitState.InProgress;
-            var step = GetStep(stepId);
             ValidateTemplatesInStep(step, availableSteps);
             var downStreamAvailableSteps = new HashSet<StepId>(availableSteps);
 
@@ -166,7 +173,7 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
                 StepOutputSchema schema = null;
                 if (referencedStep is TriggerStepDefinition triggerStep) schema = triggerStep.OutputSchema;
                 else if (referencedStep is ActionStepDefinition actionStep) schema = actionStep.OutputSchema;
-                // Currently conditions, parallels don't have outputschemas, loops outputs are complex. Let's assume Trigger/Action for now.
+                else if (referencedStep is LoopStepDefinition loopStep) schema = loopStep.OutputSchema;
 
                 if (schema != null && !schema.Fields.ContainsKey(refFieldName))
                     throw new InvalidOperationException($"Step '{stepId}' references non-existent field '{refFieldName}' on step '{refStepName}' in template '{match.Value}'.");

@@ -1,1998 +1,1464 @@
-// using WorkflowAutomation.SharedKernel.Domain.Enums;
-// using WorkflowAutomation.SharedKernel.Domain.Ids;
-// using WorkflowAutomation.WorkflowDefinition.Domain.Aggregates;
-// using WorkflowAutomation.WorkflowDefinition.Domain.Enums;
-// using WorkflowAutomation.WorkflowDefinition.Domain.Ids;
-// using WorkflowAutomation.WorkflowDefinition.Domain.StepDefinitions;
-// using WorkflowAutomation.WorkflowDefinition.Domain.ValueObjects;
-// using WorkflowDefinitionAggregate = WorkflowAutomation.WorkflowDefinition.Domain.Aggregates.WorkflowDefinition;
-
-// namespace WorkflowAutomation.WorkflowDefinition.Domain.Tests;
-
-// public class WorkflowDefinitionCreationTests
-// {
-//     private static StepId NewStepId() => new(Guid.NewGuid());
-//     private static IntegrationId NewIntegrationId() => new(Guid.NewGuid());
-//     private static WorkflowVersionId NewVersionId() => new(Guid.NewGuid());
-//     private static WorkflowId NewWorkflowId() => new(Guid.NewGuid());
-
-//     private static StepOutputSchema Schema(params (string key, string type)[] fields)
-//     {
-//         var dict = new Dictionary<string, string>();
-//         foreach (var (key, type) in fields)
-//             dict[key] = type;
-//         return new StepOutputSchema(dict);
-//     }
-
-//     /// <summary>
-//     /// Test 1: E-commerce order processing pipeline
-//     /// Trigger → Action(validate) → Condition(amount check) → [high: Action(fraud) → Action(manualReview)] 
-//     ///   [low: Action(autoApprove)] → Condition(stock) → [inStock: Action(reserve)] [outOfStock: Action(backorder)]
-//     ///   → Action(payment) → Action(confirm) → Parallel(ship + notify) → Action(ship) / Action(emailNotify) 
-//     ///   → Action(updateDashboard) → Action(archive) → Action(generateInvoice) → Action(completeOrder)
-//     /// </summary>
-//     [Fact]
-//     public void Create_EcommerceOrderProcessingPipeline_Succeeds()
-//     {
-//         // Arrange - 20 steps
-//         var integrationId = NewIntegrationId();
-
-//         var s1 = NewStepId();  // Trigger: OrderReceived
-//         var s2 = NewStepId();  // Action: ValidateOrder
-//         var s3 = NewStepId();  // Condition: CheckOrderAmount
-//         var s4 = NewStepId();  // Action: FraudCheck (high amount branch)
-//         var s5 = NewStepId();  // Action: ManualReview
-//         var s6 = NewStepId();  // Action: AutoApprove (low amount branch)
-//         var s7 = NewStepId();  // Action: MergeApproval
-//         var s8 = NewStepId();  // Condition: CheckStock
-//         var s9 = NewStepId();  // Action: ReserveStock (inStock)
-//         var s10 = NewStepId(); // Action: BackorderStock (outOfStock)
-//         var s11 = NewStepId(); // Action: ProcessPayment
-//         var s12 = NewStepId(); // Action: ConfirmOrder
-//         var s13 = NewStepId(); // Parallel: ShipAndNotify
-//         var s14 = NewStepId(); // Action: ShipOrder (branch 1)
-//         var s15 = NewStepId(); // Action: EmailNotification (branch 2)
-//         var s16 = NewStepId(); // Action: UpdateDashboard
-//         var s17 = NewStepId(); // Action: ArchiveOrder
-//         var s18 = NewStepId(); // Action: GenerateInvoice
-//         var s19 = NewStepId(); // Action: SendInvoice
-//         var s20 = NewStepId(); // Action: CompleteOrder
-
-//         var steps = new List<StepDefinition>
-//         {
-//             new TriggerStepDefinition(s1, "OrderReceived", integrationId, "order.created",
-//                 new Dictionary<string, string> { ["channel"] = "web" }, s2,
-//                 Schema(("orderId", "string"), ("amount", "decimal"), ("customerId", "string"), ("items", "array"))),
-
-//             new ActionStepDefinition(s2, "ValidateOrder", integrationId, "order.validate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["orderId"] = TemplateOrLiteral.Template("{{OrderReceived.orderId}}"),
-//                     ["customerId"] = TemplateOrLiteral.Template("{{OrderReceived.customerId}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 3,
-//                 outputSchema: Schema(("isValid", "bool"), ("validationMessage", "string")), nextStepId: s3),
-
-//             new ConditionStepDefinition(s3, "CheckOrderAmount",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{OrderReceived.amount}} > 1000", s4),
-//                     new("{{OrderReceived.amount}} <= 1000", s6)
-//                 }, nextStepId: s7),
-
-//             new ActionStepDefinition(s4, "FraudCheck", integrationId, "fraud.check",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["orderId"] = TemplateOrLiteral.Template("{{OrderReceived.orderId}}"),
-//                     ["amount"] = TemplateOrLiteral.Template("{{OrderReceived.amount}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("riskScore", "int"), ("flagged", "bool")), nextStepId: s5),
-
-//             new ActionStepDefinition(s5, "ManualReview", integrationId, "review.create",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["riskScore"] = TemplateOrLiteral.Template("{{FraudCheck.riskScore}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("approved", "bool"), ("reviewNote", "string"))),
-
-//             new ActionStepDefinition(s6, "AutoApprove", integrationId, "order.approve",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["orderId"] = TemplateOrLiteral.Template("{{OrderReceived.orderId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("approved", "bool"), ("approvalCode", "string"))),
-
-//             new ActionStepDefinition(s7, "MergeApproval", integrationId, "approval.merge",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["orderId"] = TemplateOrLiteral.Template("{{OrderReceived.orderId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("finalApproval", "bool"), ("approver", "string")), nextStepId: s8),
-
-//             new ConditionStepDefinition(s8, "CheckStock",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{ValidateOrder.isValid}} == true", s9),
-//                     new("{{ValidateOrder.isValid}} == false", s10)
-//                 }, nextStepId: s11),
-
-//             new ActionStepDefinition(s9, "ReserveStock", integrationId, "stock.reserve",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["items"] = TemplateOrLiteral.Template("{{OrderReceived.items}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("reserved", "bool"), ("warehouse", "string"))),
-
-//             new ActionStepDefinition(s10, "BackorderStock", integrationId, "stock.backorder",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["items"] = TemplateOrLiteral.Template("{{OrderReceived.items}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("backorderId", "string"), ("estimatedDate", "string"))),
-
-//             new ActionStepDefinition(s11, "ProcessPayment", integrationId, "payment.process",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["amount"] = TemplateOrLiteral.Template("{{OrderReceived.amount}}"),
-//                     ["customerId"] = TemplateOrLiteral.Template("{{OrderReceived.customerId}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 3,
-//                 outputSchema: Schema(("transactionId", "string"), ("status", "string")), nextStepId: s12),
-
-//             new ActionStepDefinition(s12, "ConfirmOrder", integrationId, "order.confirm",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["transactionId"] = TemplateOrLiteral.Template("{{ProcessPayment.transactionId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("confirmationCode", "string"), ("confirmedAt", "string")), nextStepId: s13),
-
-//             new ParallelStepDefinition(s13, "ShipAndNotify",
-//                 new List<StepId> { s14, s15 }, nextStepId: s16),
-
-//             new ActionStepDefinition(s14, "ShipOrder", integrationId, "shipping.create",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["orderId"] = TemplateOrLiteral.Template("{{OrderReceived.orderId}}"),
-//                     ["confirmationCode"] = TemplateOrLiteral.Template("{{ConfirmOrder.confirmationCode}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("trackingNumber", "string"), ("carrier", "string"))),
-
-//             new ActionStepDefinition(s15, "EmailNotification", integrationId, "email.send",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["customerId"] = TemplateOrLiteral.Template("{{OrderReceived.customerId}}"),
-//                     ["confirmationCode"] = TemplateOrLiteral.Template("{{ConfirmOrder.confirmationCode}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("emailId", "string"), ("sentAt", "string"))),
-
-//             new ActionStepDefinition(s16, "UpdateDashboard", integrationId, "dashboard.update",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["trackingNumber"] = TemplateOrLiteral.Template("{{ShipOrder.trackingNumber}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("dashboardId", "string"), ("updatedAt", "string")), nextStepId: s17),
-
-//             new ActionStepDefinition(s17, "ArchiveOrder", integrationId, "order.archive",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["orderId"] = TemplateOrLiteral.Template("{{OrderReceived.orderId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("archiveId", "string"), ("archivedAt", "string")), nextStepId: s18),
-
-//             new ActionStepDefinition(s18, "GenerateInvoice", integrationId, "invoice.generate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["transactionId"] = TemplateOrLiteral.Template("{{ProcessPayment.transactionId}}"),
-//                     ["amount"] = TemplateOrLiteral.Template("{{OrderReceived.amount}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 1,
-//                 outputSchema: Schema(("invoiceId", "string"), ("invoiceUrl", "string")), nextStepId: s19),
-
-//             new ActionStepDefinition(s19, "SendInvoice", integrationId, "invoice.send",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["invoiceUrl"] = TemplateOrLiteral.Template("{{GenerateInvoice.invoiceUrl}}"),
-//                     ["customerId"] = TemplateOrLiteral.Template("{{OrderReceived.customerId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("sentStatus", "string"), ("deliveryId", "string")), nextStepId: s20),
-
-//             new ActionStepDefinition(s20, "CompleteOrder", integrationId, "order.complete",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["orderId"] = TemplateOrLiteral.Template("{{OrderReceived.orderId}}"),
-//                     ["archiveId"] = TemplateOrLiteral.Template("{{ArchiveOrder.archiveId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("completedAt", "string"), ("summary", "string")))
-//         };
-
-//         // Act
-//         var result = new WorkflowDefinitionAggregate(NewVersionId(), NewWorkflowId(), steps);
-
-//         // Assert
-//         Assert.NotNull(result);
-//     }
-
-//     /// <summary>
-//     /// Test 2: CI/CD deployment pipeline with parallel testing and conditional rollback
-//     /// Trigger → Action(clone) → Parallel(unitTests + integrationTests + lintCheck) 
-//     ///   → Condition(allPassed?) → [yes: Action(build) → Action(pushImage) → Condition(env) → [staging: Action(deploySt)] [prod: Action(deployPr)]
-//     ///   → Action(smokeTst) → Action(notify)] → [no: Action(rollback) → Action(alertTeam)]
-//     ///   → Action(updateJira) → Action(cleanArtifacts) → Action(logMetrics) → Action(finalize)
-//     /// </summary>
-//     [Fact]
-//     public void Create_CiCdDeploymentPipeline_Succeeds()
-//     {
-//         var integrationId = NewIntegrationId();
-
-//         var s1 = NewStepId();  // Trigger: PushEvent
-//         var s2 = NewStepId();  // Action: CloneRepo
-//         var s3 = NewStepId();  // Parallel: RunTests
-//         var s4 = NewStepId();  // Action: UnitTests (branch 1)
-//         var s5 = NewStepId();  // Action: IntegrationTests (branch 2)
-//         var s6 = NewStepId();  // Action: LintCheck (branch 3)
-//         var s7 = NewStepId();  // Condition: AllTestsPassed
-//         var s8 = NewStepId();  // Action: BuildArtifact (pass branch)
-//         var s9 = NewStepId();  // Action: PushDockerImage
-//         var s10 = NewStepId(); // Condition: SelectEnvironment
-//         var s11 = NewStepId(); // Action: DeployStaging
-//         var s12 = NewStepId(); // Action: DeployProduction
-//         var s13 = NewStepId(); // Action: SmokeTest
-//         var s14 = NewStepId(); // Action: NotifySuccess
-//         var s15 = NewStepId(); // Action: Rollback (fail branch)
-//         var s16 = NewStepId(); // Action: AlertTeam
-//         var s17 = NewStepId(); // Action: UpdateJira
-//         var s18 = NewStepId(); // Action: CleanArtifacts
-//         var s19 = NewStepId(); // Action: LogMetrics
-//         var s20 = NewStepId(); // Action: FinalizePipeline
-
-//         var steps = new List<StepDefinition>
-//         {
-//             new TriggerStepDefinition(s1, "PushEvent", integrationId, "git.push",
-//                 new Dictionary<string, string> { ["branch"] = "main" }, s2,
-//                 Schema(("commitHash", "string"), ("branch", "string"), ("author", "string"), ("repoUrl", "string"))),
-
-//             new ActionStepDefinition(s2, "CloneRepo", integrationId, "git.clone",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["repoUrl"] = TemplateOrLiteral.Template("{{PushEvent.repoUrl}}"),
-//                     ["commitHash"] = TemplateOrLiteral.Template("{{PushEvent.commitHash}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("workDir", "string"), ("cloneStatus", "string")), nextStepId: s3),
-
-//             new ParallelStepDefinition(s3, "RunTests",
-//                 new List<StepId> { s4, s5, s6 }, nextStepId: s7),
-
-//             new ActionStepDefinition(s4, "UnitTests", integrationId, "test.run",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["workDir"] = TemplateOrLiteral.Template("{{CloneRepo.workDir}}"),
-//                     ["suite"] = TemplateOrLiteral.Literal("unit")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("passed", "bool"), ("coverage", "decimal"))),
-
-//             new ActionStepDefinition(s5, "IntegrationTests", integrationId, "test.run",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["workDir"] = TemplateOrLiteral.Template("{{CloneRepo.workDir}}"),
-//                     ["suite"] = TemplateOrLiteral.Literal("integration")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("passed", "bool"), ("failCount", "int"))),
-
-//             new ActionStepDefinition(s6, "LintCheck", integrationId, "lint.run",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["workDir"] = TemplateOrLiteral.Template("{{CloneRepo.workDir}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("passed", "bool"), ("warnings", "int"))),
-
-//             new ConditionStepDefinition(s7, "AllTestsPassed",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{UnitTests.passed}} == true && {{IntegrationTests.passed}} == true", s8),
-//                     new("{{UnitTests.passed}} == false || {{IntegrationTests.passed}} == false", s15)
-//                 }, nextStepId: s17),
-
-//             new ActionStepDefinition(s8, "BuildArtifact", integrationId, "build.docker",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["workDir"] = TemplateOrLiteral.Template("{{CloneRepo.workDir}}"),
-//                     ["commitHash"] = TemplateOrLiteral.Template("{{PushEvent.commitHash}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("imageTag", "string"), ("buildId", "string")), nextStepId: s9),
-
-//             new ActionStepDefinition(s9, "PushDockerImage", integrationId, "docker.push",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["imageTag"] = TemplateOrLiteral.Template("{{BuildArtifact.imageTag}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 3,
-//                 outputSchema: Schema(("registryUrl", "string"), ("digest", "string")), nextStepId: s10),
-
-//             new ConditionStepDefinition(s10, "SelectEnvironment",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{PushEvent.branch}} == 'staging'", s11),
-//                     new("{{PushEvent.branch}} == 'main'", s12)
-//                 }, nextStepId: s13),
-
-//             new ActionStepDefinition(s11, "DeployStaging", integrationId, "k8s.deploy",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["imageTag"] = TemplateOrLiteral.Template("{{BuildArtifact.imageTag}}"),
-//                     ["env"] = TemplateOrLiteral.Literal("staging")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 1,
-//                 outputSchema: Schema(("deploymentId", "string"), ("status", "string"))),
-
-//             new ActionStepDefinition(s12, "DeployProduction", integrationId, "k8s.deploy",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["imageTag"] = TemplateOrLiteral.Template("{{BuildArtifact.imageTag}}"),
-//                     ["env"] = TemplateOrLiteral.Literal("production")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("deploymentId", "string"), ("status", "string"))),
-
-//             new ActionStepDefinition(s13, "SmokeTest", integrationId, "test.smoke",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["commitHash"] = TemplateOrLiteral.Template("{{PushEvent.commitHash}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("passed", "bool"), ("responseTime", "int")), nextStepId: s14),
-
-//             new ActionStepDefinition(s14, "NotifySuccess", integrationId, "slack.send",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["message"] = TemplateOrLiteral.Template("{{PushEvent.commitHash}}"),
-//                     ["channel"] = TemplateOrLiteral.Literal("#deployments")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("messageId", "string"), ("sentAt", "string"))),
-
-//             new ActionStepDefinition(s15, "Rollback", integrationId, "k8s.rollback",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["commitHash"] = TemplateOrLiteral.Template("{{PushEvent.commitHash}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("rollbackId", "string"), ("status", "string")), nextStepId: s16),
-
-//             new ActionStepDefinition(s16, "AlertTeam", integrationId, "pagerduty.alert",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["author"] = TemplateOrLiteral.Template("{{PushEvent.author}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("alertId", "string"), ("severity", "string"))),
-
-//             new ActionStepDefinition(s17, "UpdateJira", integrationId, "jira.update",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["commitHash"] = TemplateOrLiteral.Template("{{PushEvent.commitHash}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("ticketId", "string"), ("status", "string")), nextStepId: s18),
-
-//             new ActionStepDefinition(s18, "CleanArtifacts", integrationId, "storage.clean",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["workDir"] = TemplateOrLiteral.Template("{{CloneRepo.workDir}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("cleaned", "bool"), ("freedSpace", "string")), nextStepId: s19),
-
-//             new ActionStepDefinition(s19, "LogMetrics", integrationId, "metrics.log",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["commitHash"] = TemplateOrLiteral.Template("{{PushEvent.commitHash}}"),
-//                     ["branch"] = TemplateOrLiteral.Template("{{PushEvent.branch}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("logId", "string"), ("timestamp", "string")), nextStepId: s20),
-
-//             new ActionStepDefinition(s20, "FinalizePipeline", integrationId, "pipeline.finalize",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["commitHash"] = TemplateOrLiteral.Template("{{PushEvent.commitHash}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("pipelineId", "string"), ("duration", "string")))
-//         };
-
-//         var result = new WorkflowDefinitionAggregate(NewVersionId(), NewWorkflowId(), steps);
-
-//         Assert.NotNull(result);
-//     }
-
-//     /// <summary>
-//     /// Test 3: Customer onboarding with loop over documents and parallel verifications
-//     /// Trigger → Action(createAccount) → Loop(verifyDocs) → Action(enrichProfile) → Parallel(creditCheck + identityVerify + addressVerify)
-//     ///   → Condition(allVerified?) → [yes: Action(activate) → Action(welcomeEmail)] [no: Action(manualReview) → Action(notifyCompliance)]
-//     ///   → Action(syncCRM) → Action(assignManager) → Action(scheduleOnboarding) → Action(auditLog) → Action(completeOnboarding)
-//     /// </summary>
-//     [Fact]
-//     public void Create_CustomerOnboardingWithLoopAndParallel_Succeeds()
-//     {
-//         var integrationId = NewIntegrationId();
-
-//         var s1 = NewStepId();  // Trigger: NewCustomerEvent
-//         var s2 = NewStepId();  // Action: CreateAccount
-//         var s3 = NewStepId();  // Loop: VerifyDocuments
-//         var s3Inner1 = NewStepId(); // Loop inner: Action: ScanDocument
-//         var s3Inner2 = NewStepId(); // Loop inner: Action: ClassifyDocument
-//         var s4 = NewStepId();  // Action: EnrichProfile
-//         var s5 = NewStepId();  // Parallel: VerificationChecks
-//         var s6 = NewStepId();  // Action: CreditCheck (branch 1)
-//         var s7 = NewStepId();  // Action: IdentityVerify (branch 2)
-//         var s8 = NewStepId();  // Action: AddressVerify (branch 3)
-//         var s9 = NewStepId();  // Condition: AllVerified
-//         var s10 = NewStepId(); // Action: ActivateAccount (yes branch)
-//         var s11 = NewStepId(); // Action: WelcomeEmail
-//         var s12 = NewStepId(); // Action: ManualReview (no branch)
-//         var s13 = NewStepId(); // Action: NotifyCompliance
-//         var s14 = NewStepId(); // Action: SyncCRM
-//         var s15 = NewStepId(); // Action: AssignManager
-//         var s16 = NewStepId(); // Action: ScheduleOnboarding
-//         var s17 = NewStepId(); // Action: AuditLog
-//         var s18 = NewStepId(); // Action: CompleteOnboarding
-
-//         var loopInnerSteps = new List<StepDefinition>
-//         {
-//             new ActionStepDefinition(s3Inner1, "ScanDocument", integrationId, "doc.scan",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["docId"] = TemplateOrLiteral.Literal("currentItem")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("scanResult", "string"), ("confidence", "decimal")), nextStepId: s3Inner2),
-
-//             new ActionStepDefinition(s3Inner2, "ClassifyDocument", integrationId, "doc.classify",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["scanResult"] = TemplateOrLiteral.Literal("scannedData")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("docType", "string"), ("valid", "bool")))
-//         };
-
-//         var steps = new List<StepDefinition>
-//         {
-//             new TriggerStepDefinition(s1, "NewCustomerEvent", integrationId, "customer.created",
-//                 new Dictionary<string, string> { ["source"] = "web-portal" }, s2,
-//                 Schema(("customerId", "string"), ("email", "string"), ("documents", "array"), ("tier", "string"))),
-
-//             new ActionStepDefinition(s2, "CreateAccount", integrationId, "account.create",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["customerId"] = TemplateOrLiteral.Template("{{NewCustomerEvent.customerId}}"),
-//                     ["email"] = TemplateOrLiteral.Template("{{NewCustomerEvent.email}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("accountId", "string"), ("status", "string")), nextStepId: s3),
-
-//             new LoopStepDefinition(s3, "VerifyDocuments",
-//                 new TemplateReference("{{NewCustomerEvent.documents}}"),
-//                 Schema(("currentItem", "string")),
-//                 loopInnerSteps,
-//                 ConcurrencyMode.Sequential,
-//                 IterationFailureStrategy.Skip,
-//                 retryCount: 0, nextStepId: s4),
-
-//             new ActionStepDefinition(s4, "EnrichProfile", integrationId, "profile.enrich",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["accountId"] = TemplateOrLiteral.Template("{{CreateAccount.accountId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("enriched", "bool"), ("score", "int")), nextStepId: s5),
-
-//             new ParallelStepDefinition(s5, "VerificationChecks",
-//                 new List<StepId> { s6, s7, s8 }, nextStepId: s9),
-
-//             new ActionStepDefinition(s6, "CreditCheck", integrationId, "credit.check",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["customerId"] = TemplateOrLiteral.Template("{{NewCustomerEvent.customerId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("creditScore", "int"), ("approved", "bool"))),
-
-//             new ActionStepDefinition(s7, "IdentityVerify", integrationId, "identity.verify",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["customerId"] = TemplateOrLiteral.Template("{{NewCustomerEvent.customerId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("verified", "bool"), ("method", "string"))),
-
-//             new ActionStepDefinition(s8, "AddressVerify", integrationId, "address.verify",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["customerId"] = TemplateOrLiteral.Template("{{NewCustomerEvent.customerId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("verified", "bool"), ("normalizedAddress", "string"))),
-
-//             new ConditionStepDefinition(s9, "AllVerified",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{CreditCheck.approved}} == true && {{IdentityVerify.verified}} == true", s10),
-//                     new("{{CreditCheck.approved}} == false || {{IdentityVerify.verified}} == false", s12)
-//                 }, nextStepId: s14),
-
-//             new ActionStepDefinition(s10, "ActivateAccount", integrationId, "account.activate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["accountId"] = TemplateOrLiteral.Template("{{CreateAccount.accountId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("activatedAt", "string"), ("status", "string")), nextStepId: s11),
-
-//             new ActionStepDefinition(s11, "WelcomeEmail", integrationId, "email.welcome",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["email"] = TemplateOrLiteral.Template("{{NewCustomerEvent.email}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("emailId", "string"), ("sentAt", "string"))),
-
-//             new ActionStepDefinition(s12, "ManualReview", integrationId, "review.manual",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["customerId"] = TemplateOrLiteral.Template("{{NewCustomerEvent.customerId}}"),
-//                     ["creditScore"] = TemplateOrLiteral.Template("{{CreditCheck.creditScore}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("reviewId", "string"), ("outcome", "string")), nextStepId: s13),
-
-//             new ActionStepDefinition(s13, "NotifyCompliance", integrationId, "compliance.notify",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["customerId"] = TemplateOrLiteral.Template("{{NewCustomerEvent.customerId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("notificationId", "string"), ("sentAt", "string"))),
-
-//             new ActionStepDefinition(s14, "SyncCRM", integrationId, "crm.sync",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["accountId"] = TemplateOrLiteral.Template("{{CreateAccount.accountId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("crmId", "string"), ("syncedAt", "string")), nextStepId: s15),
-
-//             new ActionStepDefinition(s15, "AssignManager", integrationId, "manager.assign",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["tier"] = TemplateOrLiteral.Template("{{NewCustomerEvent.tier}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("managerId", "string"), ("managerName", "string")), nextStepId: s16),
-
-//             new ActionStepDefinition(s16, "ScheduleOnboarding", integrationId, "calendar.schedule",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["email"] = TemplateOrLiteral.Template("{{NewCustomerEvent.email}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("meetingId", "string"), ("scheduledAt", "string")), nextStepId: s17),
-
-//             new ActionStepDefinition(s17, "AuditLog", integrationId, "audit.log",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["customerId"] = TemplateOrLiteral.Template("{{NewCustomerEvent.customerId}}"),
-//                     ["accountId"] = TemplateOrLiteral.Template("{{CreateAccount.accountId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("logId", "string"), ("timestamp", "string")), nextStepId: s18),
-
-//             new ActionStepDefinition(s18, "CompleteOnboarding", integrationId, "onboarding.complete",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["customerId"] = TemplateOrLiteral.Template("{{NewCustomerEvent.customerId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("completedAt", "string"), ("summary", "string")))
-//         };
-
-//         var result = new WorkflowDefinitionAggregate(NewVersionId(), NewWorkflowId(), steps);
-
-//         Assert.NotNull(result);
-//     }
-
-//     /// <summary>
-//     /// Test 4: Data ETL pipeline with parallel extraction, loop transformation, and conditional loading
-//     /// Trigger → Parallel(extractDB + extractAPI + extractCSV) → Action(mergeData)
-//     ///   → Loop(transform each record) → Action(validate) → Condition(dataQuality)
-//     ///   → [good: Action(loadWarehouse)] [bad: Action(quarantine)] → Action(index) → Action(notify)
-//     ///   → Action(generateReport) → Action(archiveRaw) → Action(updateCatalog) → Action(finalize)
-//     /// </summary>
-//     [Fact]
-//     public void Create_DataEtlPipelineWithParallelAndLoop_Succeeds()
-//     {
-//         var integrationId = NewIntegrationId();
-
-//         var s1 = NewStepId();  // Trigger: ScheduledETL
-//         var s2 = NewStepId();  // Parallel: ExtractSources
-//         var s3 = NewStepId();  // Action: ExtractDB (branch 1)
-//         var s4 = NewStepId();  // Action: ExtractAPI (branch 2)
-//         var s5 = NewStepId();  // Action: ExtractCSV (branch 3)
-//         var s6 = NewStepId();  // Action: MergeData
-//         var s7 = NewStepId();  // Loop: TransformRecords
-//         var s7Inner1 = NewStepId(); // Loop inner: Action: NormalizeRecord
-//         var s7Inner2 = NewStepId(); // Loop inner: Action: EnrichRecord
-//         var s8 = NewStepId();  // Action: ValidateData
-//         var s9 = NewStepId();  // Condition: DataQuality
-//         var s10 = NewStepId(); // Action: LoadWarehouse (good)
-//         var s11 = NewStepId(); // Action: Quarantine (bad)
-//         var s12 = NewStepId(); // Action: IndexData
-//         var s13 = NewStepId(); // Action: NotifyTeam
-//         var s14 = NewStepId(); // Action: GenerateReport
-//         var s15 = NewStepId(); // Action: ArchiveRaw
-//         var s16 = NewStepId(); // Action: UpdateCatalog
-
-//         var loopInnerSteps = new List<StepDefinition>
-//         {
-//             new ActionStepDefinition(s7Inner1, "NormalizeRecord", integrationId, "data.normalize",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["record"] = TemplateOrLiteral.Literal("currentRecord")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("normalized", "string"), ("transformType", "string")), nextStepId: s7Inner2),
-
-//             new ActionStepDefinition(s7Inner2, "EnrichRecord", integrationId, "data.enrich",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["normalized"] = TemplateOrLiteral.Literal("normalizedData")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("enriched", "string"), ("enrichSource", "string")))
-//         };
-
-//         var steps = new List<StepDefinition>
-//         {
-//             new TriggerStepDefinition(s1, "ScheduledETL", integrationId, "cron.trigger",
-//                 new Dictionary<string, string> { ["schedule"] = "0 2 * * *" }, s2,
-//                 Schema(("runId", "string"), ("timestamp", "string"), ("records", "array"), ("batchSize", "int"))),
-
-//             new ParallelStepDefinition(s2, "ExtractSources",
-//                 new List<StepId> { s3, s4, s5 }, nextStepId: s6),
-
-//             new ActionStepDefinition(s3, "ExtractDB", integrationId, "db.query",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["runId"] = TemplateOrLiteral.Template("{{ScheduledETL.runId}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 3,
-//                 outputSchema: Schema(("rowCount", "int"), ("dataRef", "string"))),
-
-//             new ActionStepDefinition(s4, "ExtractAPI", integrationId, "api.fetch",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["runId"] = TemplateOrLiteral.Template("{{ScheduledETL.runId}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("recordCount", "int"), ("dataRef", "string"))),
-
-//             new ActionStepDefinition(s5, "ExtractCSV", integrationId, "csv.import",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["runId"] = TemplateOrLiteral.Template("{{ScheduledETL.runId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("lineCount", "int"), ("dataRef", "string"))),
-
-//             new ActionStepDefinition(s6, "MergeData", integrationId, "data.merge",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["dbRef"] = TemplateOrLiteral.Template("{{ExtractDB.dataRef}}"),
-//                     ["apiRef"] = TemplateOrLiteral.Template("{{ExtractAPI.dataRef}}"),
-//                     ["csvRef"] = TemplateOrLiteral.Template("{{ExtractCSV.dataRef}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("mergedRef", "string"), ("totalRecords", "int")), nextStepId: s7),
-
-//             new LoopStepDefinition(s7, "TransformRecords",
-//                 new TemplateReference("{{ScheduledETL.records}}"),
-//                 Schema(("currentRecord", "string")),
-//                 loopInnerSteps,
-//                 ConcurrencyMode.Parallel,
-//                 IterationFailureStrategy.Skip,
-//                 retryCount: 0, nextStepId: s8, maxConcurrency: 10),
-
-//             new ActionStepDefinition(s8, "ValidateData", integrationId, "data.validate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["mergedRef"] = TemplateOrLiteral.Template("{{MergeData.mergedRef}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("qualityScore", "decimal"), ("validRecords", "int")), nextStepId: s9),
-
-//             new ConditionStepDefinition(s9, "DataQuality",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{ValidateData.qualityScore}} >= 0.95", s10),
-//                     new("{{ValidateData.qualityScore}} < 0.95", s11)
-//                 }, nextStepId: s12),
-
-//             new ActionStepDefinition(s10, "LoadWarehouse", integrationId, "warehouse.load",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["mergedRef"] = TemplateOrLiteral.Template("{{MergeData.mergedRef}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("loadedCount", "int"), ("tableRef", "string"))),
-
-//             new ActionStepDefinition(s11, "Quarantine", integrationId, "data.quarantine",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["mergedRef"] = TemplateOrLiteral.Template("{{MergeData.mergedRef}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("quarantinedCount", "int"), ("reason", "string"))),
-
-//             new ActionStepDefinition(s12, "IndexData", integrationId, "search.index",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["runId"] = TemplateOrLiteral.Template("{{ScheduledETL.runId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("indexedCount", "int"), ("indexName", "string")), nextStepId: s13),
-
-//             new ActionStepDefinition(s13, "NotifyTeam", integrationId, "slack.notify",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["runId"] = TemplateOrLiteral.Template("{{ScheduledETL.runId}}"),
-//                     ["totalRecords"] = TemplateOrLiteral.Template("{{MergeData.totalRecords}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("messageId", "string"), ("sentAt", "string")), nextStepId: s14),
-
-//             new ActionStepDefinition(s14, "GenerateReport", integrationId, "report.generate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["runId"] = TemplateOrLiteral.Template("{{ScheduledETL.runId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("reportUrl", "string"), ("reportId", "string")), nextStepId: s15),
-
-//             new ActionStepDefinition(s15, "ArchiveRaw", integrationId, "storage.archive",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["runId"] = TemplateOrLiteral.Template("{{ScheduledETL.runId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("archiveId", "string"), ("size", "string")), nextStepId: s16),
-
-//             new ActionStepDefinition(s16, "UpdateCatalog", integrationId, "catalog.update",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["runId"] = TemplateOrLiteral.Template("{{ScheduledETL.runId}}"),
-//                     ["reportUrl"] = TemplateOrLiteral.Template("{{GenerateReport.reportUrl}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("catalogId", "string"), ("updatedAt", "string")))
-//         };
-
-//         var result = new WorkflowDefinitionAggregate(NewVersionId(), NewWorkflowId(), steps);
-
-//         Assert.NotNull(result);
-//     }
-
-//     /// <summary>
-//     /// Test 5: Incident management with nested conditions and parallel notification
-//     /// Trigger → Action(classifyIncident) → Condition(severity) → [critical: Action(pageOnCall) → Parallel(restartSvc + rollback)]
-//     ///   [high: Action(escalate)] [low: Action(createTicket)] → Condition(resolved?) → [yes: Action(closeTicket)]
-//     ///   [no: Action(reEscalate)] → Action(postMortem) → Action(updateRunbook) → Action(metrics)
-//     ///   → Action(weeklyDigest) → Action(archiveIncident) → Action(trainModel) → Action(done)
-//     /// </summary>
-//     [Fact]
-//     public void Create_IncidentManagementNestedConditions_Succeeds()
-//     {
-//         var integrationId = NewIntegrationId();
-
-//         var s1 = NewStepId();  // Trigger: AlertFired
-//         var s2 = NewStepId();  // Action: ClassifyIncident
-//         var s3 = NewStepId();  // Condition: SeverityCheck
-//         var s4 = NewStepId();  // Action: PageOnCall (critical)
-//         var s5 = NewStepId();  // Parallel: CriticalActions
-//         var s6 = NewStepId();  // Action: RestartService (branch 1)
-//         var s7 = NewStepId();  // Action: RollbackDeploy (branch 2)
-//         var s8 = NewStepId();  // Action: Escalate (high)
-//         var s9 = NewStepId();  // Action: CreateTicket (low)
-//         var s10 = NewStepId(); // Action: InvestigateRoot
-//         var s11 = NewStepId(); // Condition: Resolved
-//         var s12 = NewStepId(); // Action: CloseTicket (yes)
-//         var s13 = NewStepId(); // Action: ReEscalate (no)
-//         var s14 = NewStepId(); // Action: PostMortem
-//         var s15 = NewStepId(); // Action: UpdateRunbook
-//         var s16 = NewStepId(); // Action: LogMetrics
-//         var s17 = NewStepId(); // Action: WeeklyDigest
-//         var s18 = NewStepId(); // Action: ArchiveIncident
-//         var s19 = NewStepId(); // Action: TrainModel
-//         var s20 = NewStepId(); // Action: FinalizeIncident
-
-//         var steps = new List<StepDefinition>
-//         {
-//             new TriggerStepDefinition(s1, "AlertFired", integrationId, "monitoring.alert",
-//                 new Dictionary<string, string> { ["source"] = "datadog" }, s2,
-//                 Schema(("alertId", "string"), ("severity", "string"), ("service", "string"), ("message", "string"))),
-
-//             new ActionStepDefinition(s2, "ClassifyIncident", integrationId, "incident.classify",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["alertId"] = TemplateOrLiteral.Template("{{AlertFired.alertId}}"),
-//                     ["message"] = TemplateOrLiteral.Template("{{AlertFired.message}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("incidentId", "string"), ("category", "string"), ("priority", "int")), nextStepId: s3),
-
-//             new ConditionStepDefinition(s3, "SeverityCheck",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{AlertFired.severity}} == 'critical'", s4),
-//                     new("{{AlertFired.severity}} == 'high'", s8),
-//                     new("{{AlertFired.severity}} == 'low'", s9)
-//                 }, nextStepId: s10),
-
-//             new ActionStepDefinition(s4, "PageOnCall", integrationId, "pagerduty.page",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["service"] = TemplateOrLiteral.Template("{{AlertFired.service}}"),
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 3,
-//                 outputSchema: Schema(("pageId", "string"), ("acknowledged", "bool")), nextStepId: s5),
-
-//             new ParallelStepDefinition(s5, "CriticalActions",
-//                 new List<StepId> { s6, s7 }),
-
-//             new ActionStepDefinition(s6, "RestartService", integrationId, "k8s.restart",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["service"] = TemplateOrLiteral.Template("{{AlertFired.service}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("restartId", "string"), ("status", "string"))),
-
-//             new ActionStepDefinition(s7, "RollbackDeploy", integrationId, "deploy.rollback",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["service"] = TemplateOrLiteral.Template("{{AlertFired.service}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("rollbackId", "string"), ("version", "string"))),
-
-//             new ActionStepDefinition(s8, "Escalate", integrationId, "incident.escalate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("escalationId", "string"), ("assignee", "string"))),
-
-//             new ActionStepDefinition(s9, "CreateTicket", integrationId, "jira.create",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}"),
-//                     ["category"] = TemplateOrLiteral.Template("{{ClassifyIncident.category}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("ticketId", "string"), ("ticketUrl", "string"))),
-
-//             new ActionStepDefinition(s10, "InvestigateRoot", integrationId, "incident.investigate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("rootCause", "string"), ("resolved", "bool")), nextStepId: s11),
-
-//             new ConditionStepDefinition(s11, "Resolved",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{InvestigateRoot.resolved}} == true", s12),
-//                     new("{{InvestigateRoot.resolved}} == false", s13)
-//                 }, nextStepId: s14),
-
-//             new ActionStepDefinition(s12, "CloseTicket", integrationId, "jira.close",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("closedAt", "string"), ("resolution", "string"))),
-
-//             new ActionStepDefinition(s13, "ReEscalate", integrationId, "incident.reescalate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}"),
-//                     ["rootCause"] = TemplateOrLiteral.Template("{{InvestigateRoot.rootCause}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("escalationId", "string"), ("newAssignee", "string"))),
-
-//             new ActionStepDefinition(s14, "PostMortem", integrationId, "docs.create",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}"),
-//                     ["rootCause"] = TemplateOrLiteral.Template("{{InvestigateRoot.rootCause}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("docId", "string"), ("docUrl", "string")), nextStepId: s15),
-
-//             new ActionStepDefinition(s15, "UpdateRunbook", integrationId, "runbook.update",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["docUrl"] = TemplateOrLiteral.Template("{{PostMortem.docUrl}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("runbookId", "string"), ("updatedAt", "string")), nextStepId: s16),
-
-//             new ActionStepDefinition(s16, "LogMetrics", integrationId, "metrics.log",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("metricId", "string"), ("duration", "string")), nextStepId: s17),
-
-//             new ActionStepDefinition(s17, "WeeklyDigest", integrationId, "report.digest",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("digestId", "string"), ("generatedAt", "string")), nextStepId: s18),
-
-//             new ActionStepDefinition(s18, "ArchiveIncident", integrationId, "incident.archive",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("archiveId", "string"), ("archivedAt", "string")), nextStepId: s19),
-
-//             new ActionStepDefinition(s19, "TrainModel", integrationId, "ml.train",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["rootCause"] = TemplateOrLiteral.Template("{{InvestigateRoot.rootCause}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("modelVersion", "string"), ("accuracy", "decimal")), nextStepId: s20),
-
-//             new ActionStepDefinition(s20, "FinalizeIncident", integrationId, "incident.finalize",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["incidentId"] = TemplateOrLiteral.Template("{{ClassifyIncident.incidentId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("finalizedAt", "string"), ("status", "string")))
-//         };
-
-//         var result = new WorkflowDefinitionAggregate(NewVersionId(), NewWorkflowId(), steps);
-
-//         Assert.NotNull(result);
-//     }
-
-//     /// <summary>
-//     /// Test 6: Marketing campaign automation with loop over segments and parallel channel delivery
-//     /// Trigger → Action(loadAudience) → Loop(processSegments with inner steps) → Action(buildCreatives) 
-//     ///   → Parallel(emailChannel + smsChannel + pushChannel) → Action(mergeResults) → Condition(performance)
-//     ///   → [good: Action(scaleBudget)] [bad: Action(pauseCampaign)] → Action(updateAnalytics)
-//     ///   → Action(reportROI) → Action(archiveCampaign) → Action(schedulNext) → Action(done)
-//     /// </summary>
-//     [Fact]
-//     public void Create_MarketingCampaignWithLoopAndParallelChannels_Succeeds()
-//     {
-//         var integrationId = NewIntegrationId();
-
-//         var s1 = NewStepId();  // Trigger: CampaignLaunch
-//         var s2 = NewStepId();  // Action: LoadAudience
-//         var s3 = NewStepId();  // Loop: ProcessSegments
-//         var s3Inner1 = NewStepId(); // Loop inner: Action: ScoreSegment
-//         var s3Inner2 = NewStepId(); // Loop inner: Action: PersonalizeContent
-//         var s4 = NewStepId();  // Action: BuildCreatives
-//         var s5 = NewStepId();  // Parallel: DeliverChannels
-//         var s6 = NewStepId();  // Action: EmailChannel (branch 1)
-//         var s7 = NewStepId();  // Action: SMSChannel (branch 2)
-//         var s8 = NewStepId();  // Action: PushChannel (branch 3)
-//         var s9 = NewStepId();  // Action: MergeDeliveryResults
-//         var s10 = NewStepId(); // Condition: PerformanceCheck
-//         var s11 = NewStepId(); // Action: ScaleBudget (good)
-//         var s12 = NewStepId(); // Action: PauseCampaign (bad)
-//         var s13 = NewStepId(); // Action: UpdateAnalytics
-//         var s14 = NewStepId(); // Action: ReportROI
-//         var s15 = NewStepId(); // Action: ArchiveCampaign
-//         var s16 = NewStepId(); // Action: ScheduleNext
-
-//         var loopInnerSteps = new List<StepDefinition>
-//         {
-//             new ActionStepDefinition(s3Inner1, "ScoreSegment", integrationId, "ml.score",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["segment"] = TemplateOrLiteral.Literal("currentSegment")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("score", "decimal"), ("tier", "string")), nextStepId: s3Inner2),
-
-//             new ActionStepDefinition(s3Inner2, "PersonalizeContent", integrationId, "content.personalize",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["tier"] = TemplateOrLiteral.Literal("premium")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("contentId", "string"), ("variant", "string")))
-//         };
-
-//         var steps = new List<StepDefinition>
-//         {
-//             new TriggerStepDefinition(s1, "CampaignLaunch", integrationId, "campaign.launch",
-//                 new Dictionary<string, string> { ["platform"] = "marketing-hub" }, s2,
-//                 Schema(("campaignId", "string"), ("budget", "decimal"), ("segments", "array"), ("startDate", "string"))),
-
-//             new ActionStepDefinition(s2, "LoadAudience", integrationId, "audience.load",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["campaignId"] = TemplateOrLiteral.Template("{{CampaignLaunch.campaignId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("audienceSize", "int"), ("segmentCount", "int")), nextStepId: s3),
-
-//             new LoopStepDefinition(s3, "ProcessSegments",
-//                 new TemplateReference("{{CampaignLaunch.segments}}"),
-//                 Schema(("currentSegment", "string")),
-//                 loopInnerSteps,
-//                 ConcurrencyMode.Parallel,
-//                 IterationFailureStrategy.Skip,
-//                 retryCount: 0, nextStepId: s4, maxConcurrency: 5),
-
-//             new ActionStepDefinition(s4, "BuildCreatives", integrationId, "creative.build",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["campaignId"] = TemplateOrLiteral.Template("{{CampaignLaunch.campaignId}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 1,
-//                 outputSchema: Schema(("creativeIds", "array"), ("count", "int")), nextStepId: s5),
-
-//             new ParallelStepDefinition(s5, "DeliverChannels",
-//                 new List<StepId> { s6, s7, s8 }, nextStepId: s9),
-
-//             new ActionStepDefinition(s6, "EmailChannel", integrationId, "email.blast",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["campaignId"] = TemplateOrLiteral.Template("{{CampaignLaunch.campaignId}}"),
-//                     ["audienceSize"] = TemplateOrLiteral.Template("{{LoadAudience.audienceSize}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("sent", "int"), ("opened", "int"), ("bounced", "int"))),
-
-//             new ActionStepDefinition(s7, "SMSChannel", integrationId, "sms.blast",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["campaignId"] = TemplateOrLiteral.Template("{{CampaignLaunch.campaignId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("sent", "int"), ("delivered", "int"))),
-
-//             new ActionStepDefinition(s8, "PushChannel", integrationId, "push.blast",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["campaignId"] = TemplateOrLiteral.Template("{{CampaignLaunch.campaignId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("sent", "int"), ("clicked", "int"))),
-
-//             new ActionStepDefinition(s9, "MergeDeliveryResults", integrationId, "delivery.merge",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["emailSent"] = TemplateOrLiteral.Template("{{EmailChannel.sent}}"),
-//                     ["smsSent"] = TemplateOrLiteral.Template("{{SMSChannel.sent}}"),
-//                     ["pushSent"] = TemplateOrLiteral.Template("{{PushChannel.sent}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("totalSent", "int"), ("conversionRate", "decimal")), nextStepId: s10),
-
-//             new ConditionStepDefinition(s10, "PerformanceCheck",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{MergeDeliveryResults.conversionRate}} >= 0.05", s11),
-//                     new("{{MergeDeliveryResults.conversionRate}} < 0.05", s12)
-//                 }, nextStepId: s13),
-
-//             new ActionStepDefinition(s11, "ScaleBudget", integrationId, "budget.scale",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["budget"] = TemplateOrLiteral.Template("{{CampaignLaunch.budget}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("newBudget", "decimal"), ("scaleFactor", "decimal"))),
-
-//             new ActionStepDefinition(s12, "PauseCampaign", integrationId, "campaign.pause",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["campaignId"] = TemplateOrLiteral.Template("{{CampaignLaunch.campaignId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("pausedAt", "string"), ("reason", "string"))),
-
-//             new ActionStepDefinition(s13, "UpdateAnalytics", integrationId, "analytics.update",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["campaignId"] = TemplateOrLiteral.Template("{{CampaignLaunch.campaignId}}"),
-//                     ["totalSent"] = TemplateOrLiteral.Template("{{MergeDeliveryResults.totalSent}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("analyticsId", "string"), ("updatedAt", "string")), nextStepId: s14),
-
-//             new ActionStepDefinition(s14, "ReportROI", integrationId, "report.roi",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["campaignId"] = TemplateOrLiteral.Template("{{CampaignLaunch.campaignId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("roi", "decimal"), ("reportUrl", "string")), nextStepId: s15),
-
-//             new ActionStepDefinition(s15, "ArchiveCampaign", integrationId, "campaign.archive",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["campaignId"] = TemplateOrLiteral.Template("{{CampaignLaunch.campaignId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("archiveId", "string"), ("archivedAt", "string")), nextStepId: s16),
-
-//             new ActionStepDefinition(s16, "ScheduleNext", integrationId, "campaign.schedule",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["campaignId"] = TemplateOrLiteral.Template("{{CampaignLaunch.campaignId}}"),
-//                     ["startDate"] = TemplateOrLiteral.Template("{{CampaignLaunch.startDate}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("nextCampaignId", "string"), ("scheduledAt", "string")))
-//         };
-
-//         var result = new WorkflowDefinitionAggregate(NewVersionId(), NewWorkflowId(), steps);
-
-//         Assert.NotNull(result);
-//     }
-
-//     /// <summary>
-//     /// Test 7: HR employee offboarding with parallel revocations, loop over assets, conditional exit interview
-//     /// Trigger → Action(initOffboarding) → Parallel(revokeEmail + revokeVPN + revokeBadge) → Loop(collectAssets)
-//     ///   → Condition(voluntaryExit?) → [yes: Action(exitInterview) → Action(feedbackSurvey)] [no: Action(legalReview)]
-//     ///   → Action(finalPaycheck) → Action(benefits) → Action(archiveProfile)
-//     ///   → Action(notifyTeam) → Action(updateOrgChart) → Action(closeCase) → Action(complianceLog) → Action(done)
-//     /// </summary>
-//     [Fact]
-//     public void Create_HrOffboardingWithParallelAndLoop_Succeeds()
-//     {
-//         var integrationId = NewIntegrationId();
-
-//         var s1 = NewStepId();  // Trigger: OffboardingInitiated
-//         var s2 = NewStepId();  // Action: InitOffboarding
-//         var s3 = NewStepId();  // Parallel: RevokeAccess
-//         var s4 = NewStepId();  // Action: RevokeEmail (branch 1)
-//         var s5 = NewStepId();  // Action: RevokeVPN (branch 2)
-//         var s6 = NewStepId();  // Action: RevokeBadge (branch 3)
-//         var s7 = NewStepId();  // Loop: CollectAssets
-//         var s7Inner1 = NewStepId(); // Loop inner: Action: TrackAsset
-//         var s7Inner2 = NewStepId(); // Loop inner: Action: ConfirmReturn
-//         var s8 = NewStepId();  // Condition: VoluntaryExit
-//         var s9 = NewStepId();  // Action: ExitInterview (yes)
-//         var s10 = NewStepId(); // Action: FeedbackSurvey
-//         var s11 = NewStepId(); // Action: LegalReview (no)
-//         var s12 = NewStepId(); // Action: FinalPaycheck
-//         var s13 = NewStepId(); // Action: ProcessBenefits
-//         var s14 = NewStepId(); // Action: ArchiveProfile
-//         var s15 = NewStepId(); // Action: NotifyTeam
-//         var s16 = NewStepId(); // Action: UpdateOrgChart
-//         var s17 = NewStepId(); // Action: CloseCase
-//         var s18 = NewStepId(); // Action: ComplianceLog
-
-//         var loopInnerSteps = new List<StepDefinition>
-//         {
-//             new ActionStepDefinition(s7Inner1, "TrackAsset", integrationId, "asset.track",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["assetId"] = TemplateOrLiteral.Literal("currentAsset")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("assetType", "string"), ("location", "string")), nextStepId: s7Inner2),
-
-//             new ActionStepDefinition(s7Inner2, "ConfirmReturn", integrationId, "asset.confirm",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["assetType"] = TemplateOrLiteral.Literal("laptop")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("returned", "bool"), ("condition", "string")))
-//         };
-
-//         var steps = new List<StepDefinition>
-//         {
-//             new TriggerStepDefinition(s1, "OffboardingInitiated", integrationId, "hr.offboard",
-//                 new Dictionary<string, string> { ["source"] = "hris" }, s2,
-//                 Schema(("employeeId", "string"), ("department", "string"), ("exitType", "string"), ("assets", "array"))),
-
-//             new ActionStepDefinition(s2, "InitOffboarding", integrationId, "offboard.init",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}"),
-//                     ["department"] = TemplateOrLiteral.Template("{{OffboardingInitiated.department}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("caseId", "string"), ("lastDay", "string")), nextStepId: s3),
-
-//             new ParallelStepDefinition(s3, "RevokeAccess",
-//                 new List<StepId> { s4, s5, s6 }, nextStepId: s7),
-
-//             new ActionStepDefinition(s4, "RevokeEmail", integrationId, "google.revoke",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("revoked", "bool"), ("revokedAt", "string"))),
-
-//             new ActionStepDefinition(s5, "RevokeVPN", integrationId, "vpn.revoke",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("revoked", "bool"), ("revokedAt", "string"))),
-
-//             new ActionStepDefinition(s6, "RevokeBadge", integrationId, "badge.revoke",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("revoked", "bool"), ("badgeId", "string"))),
-
-//             new LoopStepDefinition(s7, "CollectAssets",
-//                 new TemplateReference("{{OffboardingInitiated.assets}}"),
-//                 Schema(("currentAsset", "string")),
-//                 loopInnerSteps,
-//                 ConcurrencyMode.Sequential,
-//                 IterationFailureStrategy.Skip,
-//                 retryCount: 0, nextStepId: s8),
-
-//             new ConditionStepDefinition(s8, "VoluntaryExit",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{OffboardingInitiated.exitType}} == 'voluntary'", s9),
-//                     new("{{OffboardingInitiated.exitType}} == 'involuntary'", s11)
-//                 }, nextStepId: s12),
-
-//             new ActionStepDefinition(s9, "ExitInterview", integrationId, "interview.schedule",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("interviewId", "string"), ("scheduledAt", "string")), nextStepId: s10),
-
-//             new ActionStepDefinition(s10, "FeedbackSurvey", integrationId, "survey.send",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("surveyId", "string"), ("sentAt", "string"))),
-
-//             new ActionStepDefinition(s11, "LegalReview", integrationId, "legal.review",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}"),
-//                     ["caseId"] = TemplateOrLiteral.Template("{{InitOffboarding.caseId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("reviewId", "string"), ("clearance", "bool"))),
-
-//             new ActionStepDefinition(s12, "FinalPaycheck", integrationId, "payroll.final",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}"),
-//                     ["lastDay"] = TemplateOrLiteral.Template("{{InitOffboarding.lastDay}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("paycheckId", "string"), ("amount", "decimal")), nextStepId: s13),
-
-//             new ActionStepDefinition(s13, "ProcessBenefits", integrationId, "benefits.terminate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("benefitId", "string"), ("cobraEligible", "bool")), nextStepId: s14),
-
-//             new ActionStepDefinition(s14, "ArchiveProfile", integrationId, "profile.archive",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("archiveId", "string"), ("archivedAt", "string")), nextStepId: s15),
-
-//             new ActionStepDefinition(s15, "NotifyTeam", integrationId, "slack.notify",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["department"] = TemplateOrLiteral.Template("{{OffboardingInitiated.department}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("messageId", "string"), ("sentAt", "string")), nextStepId: s16),
-
-//             new ActionStepDefinition(s16, "UpdateOrgChart", integrationId, "org.update",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("updatedAt", "string"), ("chartVersion", "string")), nextStepId: s17),
-
-//             new ActionStepDefinition(s17, "CloseCase", integrationId, "case.close",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["caseId"] = TemplateOrLiteral.Template("{{InitOffboarding.caseId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("closedAt", "string"), ("status", "string")), nextStepId: s18),
-
-//             new ActionStepDefinition(s18, "ComplianceLog", integrationId, "compliance.log",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["employeeId"] = TemplateOrLiteral.Template("{{OffboardingInitiated.employeeId}}"),
-//                     ["caseId"] = TemplateOrLiteral.Template("{{InitOffboarding.caseId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("logId", "string"), ("timestamp", "string")))
-//         };
-
-//         var result = new WorkflowDefinitionAggregate(NewVersionId(), NewWorkflowId(), steps);
-
-//         Assert.NotNull(result);
-//     }
-
-//     /// <summary>
-//     /// Test 8: IoT sensor monitoring with parallel data ingestion, loop anomaly detection, conditional alerting
-//     /// Trigger → Parallel(ingestTemp + ingestHumidity) → Action(correlate) → Loop(detectAnomalies)
-//     ///   → Condition(anomalyLevel) → [critical: Action(shutdownDevice) → Action(emergencyAlert)]
-//     ///   [warning: Action(throttleDevice)] → Action(storeTimeSeries) → Action(updateDashboard)
-//     ///   → Action(generateHeatmap) → Action(predictMaintenance) → Action(scheduleInspection)
-//     ///   → Action(exportReport) → Action(syncCloud) → Action(archiveBatch) → Action(finalize)
-//     /// </summary>
-//     [Fact]
-//     public void Create_IoTSensorMonitoringWithParallelAndLoop_Succeeds()
-//     {
-//         var integrationId = NewIntegrationId();
-
-//         var s1 = NewStepId();  // Trigger: SensorBatchReceived
-//         var s2 = NewStepId();  // Parallel: IngestStreams
-//         var s3 = NewStepId();  // Action: IngestTemperature (branch 1)
-//         var s4 = NewStepId();  // Action: IngestHumidity (branch 2)
-//         var s5 = NewStepId();  // Action: CorrelateData
-//         var s6 = NewStepId();  // Loop: DetectAnomalies
-//         var s6Inner1 = NewStepId(); // Loop inner: Action: AnalyzeReading
-//         var s6Inner2 = NewStepId(); // Loop inner: Action: ScoreAnomaly
-//         var s7 = NewStepId();  // Condition: AnomalyLevel
-//         var s8 = NewStepId();  // Action: ShutdownDevice (critical)
-//         var s9 = NewStepId();  // Action: EmergencyAlert
-//         var s10 = NewStepId(); // Action: ThrottleDevice (warning)
-//         var s11 = NewStepId(); // Action: StoreTimeSeries
-//         var s12 = NewStepId(); // Action: UpdateDashboard
-//         var s13 = NewStepId(); // Action: GenerateHeatmap
-//         var s14 = NewStepId(); // Action: PredictMaintenance
-//         var s15 = NewStepId(); // Action: ScheduleInspection
-//         var s16 = NewStepId(); // Action: ExportReport
-//         var s17 = NewStepId(); // Action: SyncCloud
-//         var s18 = NewStepId(); // Action: ArchiveBatch
-
-//         var loopInnerSteps = new List<StepDefinition>
-//         {
-//             new ActionStepDefinition(s6Inner1, "AnalyzeReading", integrationId, "sensor.analyze",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["reading"] = TemplateOrLiteral.Literal("currentReading")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("deviation", "decimal"), ("baseline", "decimal")), nextStepId: s6Inner2),
-
-//             new ActionStepDefinition(s6Inner2, "ScoreAnomaly", integrationId, "anomaly.score",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["deviation"] = TemplateOrLiteral.Literal("0.5")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("anomalyScore", "decimal"), ("classification", "string")))
-//         };
-
-//         var steps = new List<StepDefinition>
-//         {
-//             new TriggerStepDefinition(s1, "SensorBatchReceived", integrationId, "iot.batch",
-//                 new Dictionary<string, string> { ["protocol"] = "mqtt" }, s2,
-//                 Schema(("batchId", "string"), ("deviceId", "string"), ("readings", "array"), ("timestamp", "string"))),
-
-//             new ParallelStepDefinition(s2, "IngestStreams",
-//                 new List<StepId> { s3, s4 }, nextStepId: s5),
-
-//             new ActionStepDefinition(s3, "IngestTemperature", integrationId, "timeseries.ingest",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["batchId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.batchId}}"),
-//                     ["type"] = TemplateOrLiteral.Literal("temperature")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 3,
-//                 outputSchema: Schema(("recordCount", "int"), ("avgValue", "decimal"))),
-
-//             new ActionStepDefinition(s4, "IngestHumidity", integrationId, "timeseries.ingest",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["batchId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.batchId}}"),
-//                     ["type"] = TemplateOrLiteral.Literal("humidity")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 3,
-//                 outputSchema: Schema(("recordCount", "int"), ("avgValue", "decimal"))),
-
-//             new ActionStepDefinition(s5, "CorrelateData", integrationId, "data.correlate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["tempAvg"] = TemplateOrLiteral.Template("{{IngestTemperature.avgValue}}"),
-//                     ["humidityAvg"] = TemplateOrLiteral.Template("{{IngestHumidity.avgValue}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("correlationId", "string"), ("anomalyCount", "int")), nextStepId: s6),
-
-//             new LoopStepDefinition(s6, "DetectAnomalies",
-//                 new TemplateReference("{{SensorBatchReceived.readings}}"),
-//                 Schema(("currentReading", "string")),
-//                 loopInnerSteps,
-//                 ConcurrencyMode.Parallel,
-//                 IterationFailureStrategy.Skip,
-//                 retryCount: 0, nextStepId: s7, maxConcurrency: 20),
-
-//             new ConditionStepDefinition(s7, "AnomalyLevel",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{CorrelateData.anomalyCount}} > 10", s8),
-//                     new("{{CorrelateData.anomalyCount}} <= 10 && {{CorrelateData.anomalyCount}} > 0", s10)
-//                 },
-//                 nextStepId: s11, fallbackStepId: s11),
-
-//             new ActionStepDefinition(s8, "ShutdownDevice", integrationId, "device.shutdown",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["deviceId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.deviceId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("shutdownAt", "string"), ("status", "string")), nextStepId: s9),
-
-//             new ActionStepDefinition(s9, "EmergencyAlert", integrationId, "alert.emergency",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["deviceId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.deviceId}}"),
-//                     ["anomalyCount"] = TemplateOrLiteral.Template("{{CorrelateData.anomalyCount}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 3,
-//                 outputSchema: Schema(("alertId", "string"), ("severity", "string"))),
-
-//             new ActionStepDefinition(s10, "ThrottleDevice", integrationId, "device.throttle",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["deviceId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.deviceId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("throttledAt", "string"), ("newRate", "int"))),
-
-//             new ActionStepDefinition(s11, "StoreTimeSeries", integrationId, "timeseries.store",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["correlationId"] = TemplateOrLiteral.Template("{{CorrelateData.correlationId}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("storedCount", "int"), ("partitionKey", "string")), nextStepId: s12),
-
-//             new ActionStepDefinition(s12, "UpdateDashboard", integrationId, "dashboard.refresh",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["deviceId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.deviceId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("dashboardId", "string"), ("refreshedAt", "string")), nextStepId: s13),
-
-//             new ActionStepDefinition(s13, "GenerateHeatmap", integrationId, "viz.heatmap",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["batchId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.batchId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("heatmapUrl", "string"), ("generatedAt", "string")), nextStepId: s14),
-
-//             new ActionStepDefinition(s14, "PredictMaintenance", integrationId, "ml.predict",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["deviceId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.deviceId}}"),
-//                     ["correlationId"] = TemplateOrLiteral.Template("{{CorrelateData.correlationId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("prediction", "string"), ("confidence", "decimal")), nextStepId: s15),
-
-//             new ActionStepDefinition(s15, "ScheduleInspection", integrationId, "maintenance.schedule",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["deviceId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.deviceId}}"),
-//                     ["prediction"] = TemplateOrLiteral.Template("{{PredictMaintenance.prediction}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("inspectionId", "string"), ("scheduledAt", "string")), nextStepId: s16),
-
-//             new ActionStepDefinition(s16, "ExportReport", integrationId, "report.export",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["batchId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.batchId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("reportUrl", "string"), ("format", "string")), nextStepId: s17),
-
-//             new ActionStepDefinition(s17, "SyncCloud", integrationId, "cloud.sync",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["batchId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.batchId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("syncId", "string"), ("syncedAt", "string")), nextStepId: s18),
-
-//             new ActionStepDefinition(s18, "ArchiveBatch", integrationId, "batch.archive",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["batchId"] = TemplateOrLiteral.Template("{{SensorBatchReceived.batchId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("archiveId", "string"), ("archivedAt", "string")))
-//         };
-
-//         var result = new WorkflowDefinitionAggregate(NewVersionId(), NewWorkflowId(), steps);
-
-//         Assert.NotNull(result);
-//     }
-
-//     /// <summary>
-//     /// Test 9: Supply chain management with loop over shipments, parallel supplier checks, nested conditions
-//     /// Trigger → Action(receivePO) → Loop(processLineItems) → Parallel(checkSupplierA + checkSupplierB)
-//     ///   → Condition(bestPrice?) → [supplierA: Action(orderA)] [supplierB: Action(orderB)]
-//     ///   → Action(consolidateOrders) → Condition(expedite?) → [yes: Action(expediteShipping)]
-//     ///   [no: Action(standardShipping)] → Action(trackShipment) → Action(updateInventory)
-//     ///   → Action(generatePOReport) → Action(notifyProcurement) → Action(reconcileInvoice)
-//     ///   → Action(auditTrail) → Action(closePO)
-//     /// </summary>
-//     [Fact]
-//     public void Create_SupplyChainManagementWithLoopAndParallel_Succeeds()
-//     {
-//         var integrationId = NewIntegrationId();
-
-//         var s1 = NewStepId();  // Trigger: PurchaseOrderReceived
-//         var s2 = NewStepId();  // Action: ReceivePO
-//         var s3 = NewStepId();  // Loop: ProcessLineItems
-//         var s3Inner1 = NewStepId(); // Loop inner: Action: ValidateItem
-//         var s3Inner2 = NewStepId(); // Loop inner: Action: CheckAvailability
-//         var s4 = NewStepId();  // Parallel: CheckSuppliers
-//         var s5 = NewStepId();  // Action: CheckSupplierA (branch 1)
-//         var s6 = NewStepId();  // Action: CheckSupplierB (branch 2)
-//         var s7 = NewStepId();  // Condition: BestPrice
-//         var s8 = NewStepId();  // Action: OrderFromA (supplierA is cheaper)
-//         var s9 = NewStepId();  // Action: OrderFromB (supplierB is cheaper)
-//         var s10 = NewStepId(); // Action: ConsolidateOrders
-//         var s11 = NewStepId(); // Condition: ExpediteCheck
-//         var s12 = NewStepId(); // Action: ExpediteShipping (yes)
-//         var s13 = NewStepId(); // Action: StandardShipping (no)
-//         var s14 = NewStepId(); // Action: TrackShipment
-//         var s15 = NewStepId(); // Action: UpdateInventory
-//         var s16 = NewStepId(); // Action: GeneratePOReport
-//         var s17 = NewStepId(); // Action: NotifyProcurement
-//         var s18 = NewStepId(); // Action: ReconcileInvoice
-//         var s19 = NewStepId(); // Action: AuditTrail
-//         var s20 = NewStepId(); // Action: ClosePO
-
-//         var loopInnerSteps = new List<StepDefinition>
-//         {
-//             new ActionStepDefinition(s3Inner1, "ValidateItem", integrationId, "item.validate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["item"] = TemplateOrLiteral.Literal("currentItem")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("valid", "bool"), ("sku", "string")), nextStepId: s3Inner2),
-
-//             new ActionStepDefinition(s3Inner2, "CheckAvailability", integrationId, "inventory.check",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["sku"] = TemplateOrLiteral.Literal("SKU-001")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("available", "bool"), ("quantity", "int")))
-//         };
-
-//         var steps = new List<StepDefinition>
-//         {
-//             new TriggerStepDefinition(s1, "PurchaseOrderReceived", integrationId, "erp.po.created",
-//                 new Dictionary<string, string> { ["system"] = "SAP" }, s2,
-//                 Schema(("poId", "string"), ("vendorId", "string"), ("lineItems", "array"), ("priority", "string"))),
-
-//             new ActionStepDefinition(s2, "ReceivePO", integrationId, "po.receive",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}"),
-//                     ["vendorId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.vendorId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("receivedAt", "string"), ("totalAmount", "decimal")), nextStepId: s3),
-
-//             new LoopStepDefinition(s3, "ProcessLineItems",
-//                 new TemplateReference("{{PurchaseOrderReceived.lineItems}}"),
-//                 Schema(("currentItem", "string")),
-//                 loopInnerSteps,
-//                 ConcurrencyMode.Sequential,
-//                 IterationFailureStrategy.Skip,
-//                 retryCount: 0, nextStepId: s4),
-
-//             new ParallelStepDefinition(s4, "CheckSuppliers",
-//                 new List<StepId> { s5, s6 }, nextStepId: s7),
-
-//             new ActionStepDefinition(s5, "CheckSupplierA", integrationId, "supplier.quote",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}"),
-//                     ["supplier"] = TemplateOrLiteral.Literal("SupplierA")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("priceA", "decimal"), ("leadTimeA", "int"))),
-
-//             new ActionStepDefinition(s6, "CheckSupplierB", integrationId, "supplier.quote",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}"),
-//                     ["supplier"] = TemplateOrLiteral.Literal("SupplierB")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("priceB", "decimal"), ("leadTimeB", "int"))),
-
-//             new ConditionStepDefinition(s7, "BestPrice",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{CheckSupplierA.priceA}} <= {{CheckSupplierB.priceB}}", s8),
-//                     new("{{CheckSupplierA.priceA}} > {{CheckSupplierB.priceB}}", s9)
-//                 }, nextStepId: s10),
-
-//             new ActionStepDefinition(s8, "OrderFromA", integrationId, "supplier.order",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}"),
-//                     ["price"] = TemplateOrLiteral.Template("{{CheckSupplierA.priceA}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("orderId", "string"), ("confirmationRef", "string"))),
-
-//             new ActionStepDefinition(s9, "OrderFromB", integrationId, "supplier.order",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}"),
-//                     ["price"] = TemplateOrLiteral.Template("{{CheckSupplierB.priceB}}")
-//                 },
-//                 FailureStrategy.Retry, retryCount: 2,
-//                 outputSchema: Schema(("orderId", "string"), ("confirmationRef", "string"))),
-
-//             new ActionStepDefinition(s10, "ConsolidateOrders", integrationId, "order.consolidate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("consolidatedId", "string"), ("orderCount", "int")), nextStepId: s11),
-
-//             new ConditionStepDefinition(s11, "ExpediteCheck",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{PurchaseOrderReceived.priority}} == 'urgent'", s12),
-//                     new("{{PurchaseOrderReceived.priority}} == 'normal'", s13)
-//                 }, nextStepId: s14),
-
-//             new ActionStepDefinition(s12, "ExpediteShipping", integrationId, "shipping.expedite",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["consolidatedId"] = TemplateOrLiteral.Template("{{ConsolidateOrders.consolidatedId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("shipmentId", "string"), ("eta", "string"))),
-
-//             new ActionStepDefinition(s13, "StandardShipping", integrationId, "shipping.standard",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["consolidatedId"] = TemplateOrLiteral.Template("{{ConsolidateOrders.consolidatedId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("shipmentId", "string"), ("eta", "string"))),
-
-//             new ActionStepDefinition(s14, "TrackShipment", integrationId, "shipping.track",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("trackingId", "string"), ("location", "string")), nextStepId: s15),
-
-//             new ActionStepDefinition(s15, "UpdateInventory", integrationId, "inventory.update",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}"),
-//                     ["totalAmount"] = TemplateOrLiteral.Template("{{ReceivePO.totalAmount}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("inventoryId", "string"), ("updatedAt", "string")), nextStepId: s16),
-
-//             new ActionStepDefinition(s16, "GeneratePOReport", integrationId, "report.po",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("reportId", "string"), ("reportUrl", "string")), nextStepId: s17),
-
-//             new ActionStepDefinition(s17, "NotifyProcurement", integrationId, "email.notify",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}"),
-//                     ["reportUrl"] = TemplateOrLiteral.Template("{{GeneratePOReport.reportUrl}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("emailId", "string"), ("sentAt", "string")), nextStepId: s18),
-
-//             new ActionStepDefinition(s18, "ReconcileInvoice", integrationId, "invoice.reconcile",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}"),
-//                     ["totalAmount"] = TemplateOrLiteral.Template("{{ReceivePO.totalAmount}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("invoiceId", "string"), ("matchStatus", "string")), nextStepId: s19),
-
-//             new ActionStepDefinition(s19, "AuditTrail", integrationId, "audit.log",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("auditId", "string"), ("logTimestamp", "string")), nextStepId: s20),
-
-//             new ActionStepDefinition(s20, "ClosePO", integrationId, "po.close",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["poId"] = TemplateOrLiteral.Template("{{PurchaseOrderReceived.poId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("closedAt", "string"), ("finalStatus", "string")))
-//         };
-
-//         var result = new WorkflowDefinitionAggregate(NewVersionId(), NewWorkflowId(), steps);
-
-//         Assert.NotNull(result);
-//     }
-
-//     /// <summary>
-//     /// Test 10: Content moderation pipeline with parallel AI models, loop over flagged items, conditional escalation
-//     /// Trigger → Action(ingestContent) → Parallel(textAnalysis + imageAnalysis + videoAnalysis) → Action(aggregateScores)
-//     ///   → Condition(autoDecision?) → [safe: Action(publish)] [flagged: Loop(reviewFlags) → Condition(severity)
-//     ///   → [high: Action(removeContent) → Action(suspendUser)] [medium: Action(hideContent)]]
-//     ///   → Action(logDecision) → Action(updatePolicy) → Action(trainClassifier)
-//     ///   → Action(notifyCreator) → Action(generateReport) → Action(archiveAudit) → Action(done)
-//     /// </summary>
-//     [Fact]
-//     public void Create_ContentModerationWithParallelAIAndLoop_Succeeds()
-//     {
-//         var integrationId = NewIntegrationId();
-
-//         var s1 = NewStepId();  // Trigger: ContentSubmitted
-//         var s2 = NewStepId();  // Action: IngestContent
-//         var s3 = NewStepId();  // Parallel: AIAnalysis
-//         var s4 = NewStepId();  // Action: TextAnalysis (branch 1)
-//         var s5 = NewStepId();  // Action: ImageAnalysis (branch 2)
-//         var s6 = NewStepId();  // Action: VideoAnalysis (branch 3)
-//         var s7 = NewStepId();  // Action: AggregateScores
-//         var s8 = NewStepId();  // Condition: AutoDecision
-//         var s9 = NewStepId();  // Action: Publish (safe)
-//         var s10 = NewStepId(); // Loop: ReviewFlags (flagged)
-//         var s10Inner1 = NewStepId(); // Loop inner: Action: EvaluateFlag
-//         var s10Inner2 = NewStepId(); // Loop inner: Action: RecordVerdict
-//         var s11 = NewStepId(); // Condition: SeverityCheck
-//         var s12 = NewStepId(); // Action: RemoveContent (high)
-//         var s13 = NewStepId(); // Action: SuspendUser
-//         var s14 = NewStepId(); // Action: HideContent (medium)
-//         var s15 = NewStepId(); // Action: LogDecision
-//         var s16 = NewStepId(); // Action: NotifyCreator
-//         var s17 = NewStepId(); // Action: GenerateReport
-//         var s18 = NewStepId(); // Action: ArchiveAudit
-
-//         var loopInnerSteps = new List<StepDefinition>
-//         {
-//             new ActionStepDefinition(s10Inner1, "EvaluateFlag", integrationId, "moderation.evaluate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["flag"] = TemplateOrLiteral.Literal("currentFlag")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("flagType", "string"), ("confidence", "decimal")), nextStepId: s10Inner2),
-
-//             new ActionStepDefinition(s10Inner2, "RecordVerdict", integrationId, "moderation.record",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["flagType"] = TemplateOrLiteral.Literal("spam")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("verdictId", "string"), ("action", "string")))
-//         };
-
-//         var steps = new List<StepDefinition>
-//         {
-//             new TriggerStepDefinition(s1, "ContentSubmitted", integrationId, "content.submitted",
-//                 new Dictionary<string, string> { ["platform"] = "social" }, s2,
-//                 Schema(("contentId", "string"), ("userId", "string"), ("contentType", "string"), ("flags", "array"))),
-
-//             new ActionStepDefinition(s2, "IngestContent", integrationId, "content.ingest",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["contentId"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentId}}"),
-//                     ["contentType"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentType}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("ingestId", "string"), ("size", "int")), nextStepId: s3),
-
-//             new ParallelStepDefinition(s3, "AIAnalysis",
-//                 new List<StepId> { s4, s5, s6 }, nextStepId: s7),
-
-//             new ActionStepDefinition(s4, "TextAnalysis", integrationId, "ai.text",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["contentId"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("toxicityScore", "decimal"), ("sentiment", "string"))),
-
-//             new ActionStepDefinition(s5, "ImageAnalysis", integrationId, "ai.image",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["contentId"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("nsfwScore", "decimal"), ("objectDetection", "string"))),
-
-//             new ActionStepDefinition(s6, "VideoAnalysis", integrationId, "ai.video",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["contentId"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("violenceScore", "decimal"), ("duration", "int"))),
-
-//             new ActionStepDefinition(s7, "AggregateScores", integrationId, "moderation.aggregate",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["toxicity"] = TemplateOrLiteral.Template("{{TextAnalysis.toxicityScore}}"),
-//                     ["nsfw"] = TemplateOrLiteral.Template("{{ImageAnalysis.nsfwScore}}"),
-//                     ["violence"] = TemplateOrLiteral.Template("{{VideoAnalysis.violenceScore}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("overallScore", "decimal"), ("decision", "string"), ("severity", "string")), nextStepId: s8),
-
-//             new ConditionStepDefinition(s8, "AutoDecision",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{AggregateScores.decision}} == 'safe'", s9),
-//                     new("{{AggregateScores.decision}} == 'flagged'", s10)
-//                 }, nextStepId: s15),
-
-//             new ActionStepDefinition(s9, "Publish", integrationId, "content.publish",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["contentId"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("publishedAt", "string"), ("url", "string"))),
-
-//             new LoopStepDefinition(s10, "ReviewFlags",
-//                 new TemplateReference("{{ContentSubmitted.flags}}"),
-//                 Schema(("currentFlag", "string")),
-//                 loopInnerSteps,
-//                 ConcurrencyMode.Sequential,
-//                 IterationFailureStrategy.Skip,
-//                 retryCount: 0, nextStepId: s11),
-
-//             new ConditionStepDefinition(s11, "SeverityCheck",
-//                 new List<ConditionRule>
-//                 {
-//                     new("{{AggregateScores.severity}} == 'high'", s12),
-//                     new("{{AggregateScores.severity}} == 'medium'", s14)
-//                 }),
-
-//             new ActionStepDefinition(s12, "RemoveContent", integrationId, "content.remove",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["contentId"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("removedAt", "string"), ("reason", "string")), nextStepId: s13),
-
-//             new ActionStepDefinition(s13, "SuspendUser", integrationId, "user.suspend",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["userId"] = TemplateOrLiteral.Template("{{ContentSubmitted.userId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("suspendedAt", "string"), ("duration", "string"))),
-
-//             new ActionStepDefinition(s14, "HideContent", integrationId, "content.hide",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["contentId"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("hiddenAt", "string"), ("reviewRequired", "bool"))),
-
-//             new ActionStepDefinition(s15, "LogDecision", integrationId, "audit.logDecision",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["contentId"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentId}}"),
-//                     ["overallScore"] = TemplateOrLiteral.Template("{{AggregateScores.overallScore}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("logId", "string"), ("loggedAt", "string")), nextStepId: s16),
-
-//             new ActionStepDefinition(s16, "NotifyCreator", integrationId, "notification.send",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["userId"] = TemplateOrLiteral.Template("{{ContentSubmitted.userId}}"),
-//                     ["decision"] = TemplateOrLiteral.Template("{{AggregateScores.decision}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("notificationId", "string"), ("sentAt", "string")), nextStepId: s17),
-
-//             new ActionStepDefinition(s17, "GenerateReport", integrationId, "report.moderation",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["contentId"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentId}}")
-//                 },
-//                 FailureStrategy.Skip,
-//                 outputSchema: Schema(("reportId", "string"), ("reportUrl", "string")), nextStepId: s18),
-
-//             new ActionStepDefinition(s18, "ArchiveAudit", integrationId, "audit.archive",
-//                 new Dictionary<string, TemplateOrLiteral>
-//                 {
-//                     ["contentId"] = TemplateOrLiteral.Template("{{ContentSubmitted.contentId}}")
-//                 },
-//                 FailureStrategy.Stop,
-//                 outputSchema: Schema(("archiveId", "string"), ("archivedAt", "string")))
-//         };
-
-//         var result = new WorkflowDefinitionAggregate(NewVersionId(), NewWorkflowId(), steps);
-
-//         Assert.NotNull(result);
-//     }
-// }
+using WorkflowAutomation.SharedKernel.Domain.Enums;
+using WorkflowAutomation.SharedKernel.Domain.Ids;
+using WorkflowAutomation.WorkflowDefinition.Domain.Aggregates;
+using WorkflowAutomation.WorkflowDefinition.Domain.Enums;
+using WorkflowAutomation.WorkflowDefinition.Domain.Ids;
+using WorkflowAutomation.WorkflowDefinition.Domain.StepDefinitions;
+using WorkflowAutomation.WorkflowDefinition.Domain.ValueObjects;
+// using WorkflowDefinition = WorkflowAutomation.WorkflowDefinition.Domain.Aggregates.WorkflowDefinition;
+
+
+namespace WorkflowAutomation.WorkflowDefinition.Tests;
+
+public class WorkflowDefinitionTests
+{
+    #region Helpers
+
+    private static StepId Id() => StepId.New();
+    private static WorkflowVersionId VersionId() => WorkflowVersionId.New();
+    private static WorkflowId WfId() => WorkflowId.New();
+    private static IntegrationId IntId() => IntegrationId.New();
+
+    private static StepOutputSchema Schema(params (string name, string type)[] fields)
+        => new(fields.ToDictionary(f => f.name, f => f.type));
+
+    private static TriggerStepDefinition Trigger(string name, StepId id, StepId nextStepId, StepOutputSchema outputSchema)
+        => new(id, name, IntId(), "onEvent", new Dictionary<string, string>(), nextStepId: nextStepId, outputSchema: outputSchema);
+
+    private static ActionStepDefinition Action(string name, StepId id, StepOutputSchema outputSchema,
+        Dictionary<string, TemplateOrLiteral>? inputMappings = null, StepId? nextStepId = null,
+        FailureStrategy failureStrategy = FailureStrategy.Stop, int retryCount = 0)
+        => new(id, name, IntId(), "execute", inputMappings ?? new(), failureStrategy, retryCount, outputSchema: outputSchema, nextStepId: nextStepId);
+
+    private static ConditionStepDefinition Condition(string name, StepId id, IReadOnlyList<ConditionRule> rules,
+        StepId? nextStepId = null, StepId? fallbackStepId = null)
+        => new(id, name, rules, nextStepId, fallbackStepId);
+
+    private static ParallelStepDefinition Parallel(string name, StepId id, IReadOnlyList<StepId> branchEntryStepIds,
+        StepId? nextStepId = null)
+        => new(id, name, branchEntryStepIds, nextStepId);
+
+    private static LoopStepDefinition Loop(string name, StepId id, TemplateReference sourceArray, StepId loopEntryStepId,
+        StepOutputSchema outputSchema, StepId? nextStepId = null)
+        => new(id, name, sourceArray, loopEntryStepId,
+            triggerOutputSchema: Schema(("item", "object")),
+            outputSchema: outputSchema,
+            concurrencyMode: ConcurrencyMode.Sequential,
+            iterationFailureStrategy: IterationFailureStrategy.Skip,
+            nextStepId: nextStepId);
+
+    private static ConditionRule Rule(string expression, StepId targetStepId) => new(expression, targetStepId);
+
+    private static Dictionary<string, TemplateOrLiteral> Input(params (string key, string value, bool isTemplate)[] entries)
+        => entries.ToDictionary(e => e.key, e => e.isTemplate ? TemplateOrLiteral.Template(e.value) : TemplateOrLiteral.Literal(e.value));
+
+    private WorkflowAutomation.WorkflowDefinition.Domain.Aggregates.WorkflowDefinition Build(List<StepDefinition> steps) => new(VersionId(), WfId(), steps);
+
+    #endregion
+
+    // =========================================================================
+    // VALID WORKFLOWS — Complex Real-World Scenarios
+    // =========================================================================
+
+    #region 1. E-Commerce Order Processing Pipeline (28 steps)
+
+    /// <summary>
+    /// Trigger(NewOrder) → ValidateOrder → CheckInventory → Condition(InStock?)
+    ///   Yes → Parallel(
+    ///     Branch1: ReserveStock → GenerateInvoice → ProcessPayment → ConfirmPayment,
+    ///     Branch2: CalcShipping → SelectCarrier → GenerateLabel,
+    ///     Branch3: CheckFraud → ScoreFraud
+    ///   ) → MergeOrderData → Loop(each item: PackItem → WeighItem → LabelItem) → SchedulePickup → SendConfirmation → UpdateCRM
+    ///   No → NotifyCustomer → CancelOrder → RefundIfPaid
+    /// → WriteAuditLog
+    /// </summary>
+    [Fact]
+    public void Valid_01_ECommerceOrderProcessing_28Steps()
+    {
+        var trigger = Id();
+        var validate = Id(); var checkInv = Id(); var cond = Id();
+        // Yes branch → Parallel
+        var par = Id();
+        var reserveStock = Id(); var genInvoice = Id(); var processPayment = Id(); var confirmPayment = Id();
+        var calcShipping = Id(); var selectCarrier = Id(); var genLabel = Id();
+        var checkFraud = Id(); var scoreFraud = Id();
+        var mergeOrder = Id();
+        var loop = Id(); var packItem = Id(); var weighItem = Id(); var labelItem = Id();
+        var schedulePickup = Id(); var sendConfirm = Id(); var updateCrm = Id();
+        // No branch
+        var notifyCust = Id(); var cancelOrder = Id(); var refund = Id();
+        // Merge
+        var auditLog = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("NewOrder", trigger, validate, Schema(("orderId", "string"), ("customerId", "string"), ("items", "array"), ("totalAmount", "decimal"))),
+            Action("ValidateOrder", validate, Schema(("isValid", "string"), ("errors", "string")),
+                Input(("orderId", "{{NewOrder.orderId}}", true)), nextStepId: checkInv),
+            Action("CheckInventory", checkInv, Schema(("allInStock", "string"), ("unavailableItems", "string")),
+                Input(("items", "{{NewOrder.items}}", true)), nextStepId: cond),
+            Condition("InStockCheck", cond,
+                rules: [Rule("{{CheckInventory.allInStock}} == 'true'", par)],
+                fallbackStepId: notifyCust, nextStepId: auditLog),
+
+            // ── Yes branch: Parallel fulfillment ──
+            Parallel("FulfillOrder", par, [reserveStock, calcShipping, checkFraud], nextStepId: mergeOrder),
+
+            Action("ReserveStock", reserveStock, Schema(("reservationId", "string")),
+                Input(("items", "{{NewOrder.items}}", true)), nextStepId: genInvoice),
+            Action("GenerateInvoice", genInvoice, Schema(("invoiceId", "string"), ("invoiceUrl", "string")),
+                Input(("orderId", "{{NewOrder.orderId}}", true), ("amount", "{{NewOrder.totalAmount}}", true)), nextStepId: processPayment),
+            Action("ProcessPayment", processPayment, Schema(("transactionId", "string"), ("status", "string")),
+                Input(("invoiceId", "{{GenerateInvoice.invoiceId}}", true), ("amount", "{{NewOrder.totalAmount}}", true)),
+                nextStepId: confirmPayment, failureStrategy: FailureStrategy.Retry, retryCount: 3),
+            Action("ConfirmPayment", confirmPayment, Schema(("receiptUrl", "string")),
+                Input(("transactionId", "{{ProcessPayment.transactionId}}", true))),
+
+            Action("CalcShipping", calcShipping, Schema(("shippingCost", "decimal"), ("estimatedDays", "string")),
+                Input(("items", "{{NewOrder.items}}", true)), nextStepId: selectCarrier),
+            Action("SelectCarrier", selectCarrier, Schema(("carrierId", "string"), ("carrierName", "string")),
+                Input(("cost", "{{CalcShipping.shippingCost}}", true)), nextStepId: genLabel),
+            Action("GenerateLabel", genLabel, Schema(("labelUrl", "string"), ("trackingNumber", "string")),
+                Input(("carrierId", "{{SelectCarrier.carrierId}}", true))),
+
+            Action("CheckFraud", checkFraud, Schema(("riskIndicators", "string")),
+                Input(("customerId", "{{NewOrder.customerId}}", true), ("amount", "{{NewOrder.totalAmount}}", true)), nextStepId: scoreFraud),
+            Action("ScoreFraud", scoreFraud, Schema(("fraudScore", "decimal"), ("recommendation", "string")),
+                Input(("indicators", "{{CheckFraud.riskIndicators}}", true))),
+
+            // Merge after parallel — references outputs from all 3 branches
+            Action("MergeOrderData", mergeOrder, Schema(("consolidatedOrder", "string")),
+                Input(("receipt", "{{ConfirmPayment.receiptUrl}}", true),
+                      ("tracking", "{{GenerateLabel.trackingNumber}}", true),
+                      ("fraudScore", "{{ScoreFraud.fraudScore}}", true)),
+                nextStepId: loop),
+
+            // Loop over each item to pack
+            Loop("PackEachItem", loop, new TemplateReference("{{NewOrder.items}}"), packItem,
+                Schema(("packedItems", "array")), nextStepId: schedulePickup),
+            Action("PackItem", packItem, Schema(("packageId", "string")),
+                Input(("reservationId", "{{ReserveStock.reservationId}}", true)), nextStepId: weighItem),
+            Action("WeighItem", weighItem, Schema(("weight", "decimal")),
+                Input(("packageId", "{{PackItem.packageId}}", true)), nextStepId: labelItem),
+            Action("LabelItem", labelItem, Schema(("labelledPackageId", "string")),
+                Input(("packageId", "{{PackItem.packageId}}", true), ("weight", "{{WeighItem.weight}}", true))),
+
+            Action("SchedulePickup", schedulePickup, Schema(("pickupId", "string"), ("pickupTime", "string")),
+                Input(("carrierId", "{{SelectCarrier.carrierId}}", true), ("packages", "{{PackEachItem.packedItems}}", true)),
+                nextStepId: sendConfirm),
+            Action("SendConfirmation", sendConfirm, Schema(("emailId", "string")),
+                Input(("orderId", "{{NewOrder.orderId}}", true), ("tracking", "{{GenerateLabel.trackingNumber}}", true),
+                      ("pickupTime", "{{SchedulePickup.pickupTime}}", true)),
+                nextStepId: updateCrm),
+            Action("UpdateCRM", updateCrm, Schema(("crmRecordId", "string")),
+                Input(("customerId", "{{NewOrder.customerId}}", true), ("orderId", "{{NewOrder.orderId}}", true))),
+
+            // ── No branch ──
+            Action("NotifyCustomer", notifyCust, Schema(("notificationId", "string")),
+                Input(("customerId", "{{NewOrder.customerId}}", true), ("unavailable", "{{CheckInventory.unavailableItems}}", true)),
+                nextStepId: cancelOrder),
+            Action("CancelOrder", cancelOrder, Schema(("cancellationId", "string")),
+                Input(("orderId", "{{NewOrder.orderId}}", true)), nextStepId: refund),
+            Action("RefundIfPaid", refund, Schema(("refundId", "string")),
+                Input(("orderId", "{{NewOrder.orderId}}", true))),
+
+            // ── Merge point ──
+            Action("WriteAuditLog", auditLog, Schema(("auditId", "string"), ("logTimestamp", "string")),
+                Input(("orderId", "{{NewOrder.orderId}}", true), ("inventory", "{{CheckInventory.allInStock}}", true))),
+        };
+
+        Assert.Equal(26, steps.Count);
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+
+    #region 2. CI/CD Deployment Pipeline (25 steps)
+
+    /// <summary>
+    /// Trigger(PushEvent) → FetchCode → Parallel(
+    ///   Branch1: UnitTests → CoverageReport,
+    ///   Branch2: LintCode → SecurityScan,
+    ///   Branch3: BuildDocker → PushImage
+    /// ) → MergeResults → Condition(AllPassed?)
+    ///   Yes → DeployStaging → RunE2E → Condition(E2EPassed?)
+    ///     Yes → DeployProd → HealthCheck → NotifyTeam,
+    ///     No  → RollbackStaging → AlertOncall
+    ///   No  → NotifyAuthor → CreateJiraTicket
+    /// → UpdateDashboard
+    /// </summary>
+    [Fact]
+    public void Valid_02_CICDDeploymentPipeline_25Steps()
+    {
+        var trigger = Id();
+        var fetchCode = Id(); var par = Id();
+        var unitTests = Id(); var coverage = Id();
+        var lint = Id(); var secScan = Id();
+        var buildDocker = Id(); var pushImage = Id();
+        var mergeResults = Id(); var cond1 = Id();
+        var deployStaging = Id(); var runE2e = Id(); var cond2 = Id();
+        var deployProd = Id(); var healthCheck = Id(); var notifyTeam = Id();
+        var rollback = Id(); var alertOncall = Id();
+        var notifyAuthor = Id(); var createJira = Id();
+        var updateDash = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("PushEvent", trigger, fetchCode,
+                Schema(("repoUrl", "string"), ("branch", "string"), ("commitSha", "string"), ("authorEmail", "string"))),
+            Action("FetchCode", fetchCode, Schema(("codePath", "string"), ("commitMessage", "string")),
+                Input(("repo", "{{PushEvent.repoUrl}}", true), ("sha", "{{PushEvent.commitSha}}", true)), nextStepId: par),
+
+            Parallel("QualityGates", par, [unitTests, lint, buildDocker], nextStepId: mergeResults),
+
+            Action("RunUnitTests", unitTests, Schema(("testsPassed", "string"), ("testCount", "string")),
+                Input(("code", "{{FetchCode.codePath}}", true)), nextStepId: coverage),
+            Action("GenerateCoverage", coverage, Schema(("coveragePercent", "decimal"), ("reportUrl", "string")),
+                Input(("testResults", "{{RunUnitTests.testsPassed}}", true))),
+
+            Action("LintCode", lint, Schema(("lintErrors", "string"), ("warnings", "string")),
+                Input(("code", "{{FetchCode.codePath}}", true)), nextStepId: secScan),
+            Action("SecurityScan", secScan, Schema(("vulnerabilities", "string"), ("severity", "string")),
+                Input(("code", "{{FetchCode.codePath}}", true))),
+
+            Action("BuildDockerImage", buildDocker, Schema(("imageTag", "string"), ("imageSizeBytes", "string")),
+                Input(("code", "{{FetchCode.codePath}}", true), ("sha", "{{PushEvent.commitSha}}", true)), nextStepId: pushImage),
+            Action("PushToRegistry", pushImage, Schema(("registryUrl", "string")),
+                Input(("imageTag", "{{BuildDockerImage.imageTag}}", true))),
+
+            Action("MergeQualityResults", mergeResults, Schema(("allPassed", "string"), ("summary", "string")),
+                Input(("tests", "{{RunUnitTests.testsPassed}}", true), ("coverage", "{{GenerateCoverage.coveragePercent}}", true),
+                      ("lint", "{{LintCode.lintErrors}}", true), ("vulns", "{{SecurityScan.vulnerabilities}}", true)),
+                nextStepId: cond1),
+
+            Condition("AllQualityPassed", cond1,
+                rules: [Rule("{{MergeQualityResults.allPassed}} == 'true'", deployStaging)],
+                fallbackStepId: notifyAuthor, nextStepId: updateDash),
+
+            // Yes: deploy staging → e2e → condition
+            Action("DeployStaging", deployStaging, Schema(("stagingUrl", "string"), ("deployId", "string")),
+                Input(("image", "{{PushToRegistry.registryUrl}}", true)), nextStepId: runE2e),
+            Action("RunE2ETests", runE2e, Schema(("e2ePassed", "string"), ("failedTests", "string")),
+                Input(("url", "{{DeployStaging.stagingUrl}}", true)), nextStepId: cond2),
+
+            Condition("E2EPassed", cond2,
+                rules: [Rule("{{RunE2ETests.e2ePassed}} == 'true'", deployProd)],
+                fallbackStepId: rollback),
+
+            Action("DeployProduction", deployProd, Schema(("prodUrl", "string")),
+                Input(("image", "{{PushToRegistry.registryUrl}}", true)), nextStepId: healthCheck),
+            Action("HealthCheck", healthCheck, Schema(("healthy", "string"), ("latencyMs", "string")),
+                Input(("url", "{{DeployProduction.prodUrl}}", true)), nextStepId: notifyTeam),
+            Action("NotifyTeam", notifyTeam, Schema(("slackMessageId", "string")),
+                Input(("message", "deployed", false), ("url", "{{DeployProduction.prodUrl}}", true))),
+
+            Action("RollbackStaging", rollback, Schema(("rollbackId", "string")),
+                Input(("deployId", "{{DeployStaging.deployId}}", true)), nextStepId: alertOncall),
+            Action("AlertOncall", alertOncall, Schema(("alertId", "string")),
+                Input(("failures", "{{RunE2ETests.failedTests}}", true))),
+
+            // No: quality failed
+            Action("NotifyAuthor", notifyAuthor, Schema(("emailId", "string")),
+                Input(("email", "{{PushEvent.authorEmail}}", true), ("summary", "{{MergeQualityResults.summary}}", true)),
+                nextStepId: createJira),
+            Action("CreateJiraTicket", createJira, Schema(("ticketId", "string")),
+                Input(("summary", "{{MergeQualityResults.summary}}", true), ("sha", "{{PushEvent.commitSha}}", true))),
+
+            // Final merge
+            Action("UpdateDashboard", updateDash, Schema(("dashboardUrl", "string")),
+                Input(("sha", "{{PushEvent.commitSha}}", true), ("branch", "{{PushEvent.branch}}", true))),
+        };
+
+        Assert.Equal(22, steps.Count);
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+
+    #region 3. Customer Onboarding Pipeline (22 steps)
+
+    /// <summary>
+    /// Trigger(SignUp) → ValidateEmail → CreateAccount → Parallel(
+    ///   Branch1: SendWelcomeEmail → ScheduleFollowUp,
+    ///   Branch2: CreateCRMRecord → AssignSalesRep → ScheduleDemo,
+    ///   Branch3: ProvisionTenant → SeedDefaultData → ConfigureIntegrations
+    /// ) → MergeOnboarding → Condition(IsPaidPlan?)
+    ///   Yes → GenerateInvoice → ChargeCard → SendReceipt,
+    ///   No  → ScheduleTrialReminder
+    /// → ActivateAccount → NotifyInternalTeam
+    /// </summary>
+    [Fact]
+    public void Valid_03_CustomerOnboardingPipeline_22Steps()
+    {
+        var trigger = Id();
+        var validateEmail = Id(); var createAcct = Id(); var par = Id();
+        var sendWelcome = Id(); var scheduleFollow = Id();
+        var createCrm = Id(); var assignRep = Id(); var scheduleDemo = Id();
+        var provTenant = Id(); var seedData = Id(); var configInteg = Id();
+        var mergeOnboard = Id(); var cond = Id();
+        var genInvoice = Id(); var chargeCard = Id(); var sendReceipt = Id();
+        var schedTrial = Id();
+        var activateAcct = Id(); var notifyInternal = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("UserSignUp", trigger, validateEmail,
+                Schema(("email", "string"), ("name", "string"), ("plan", "string"), ("paymentMethod", "string"))),
+            Action("ValidateEmail", validateEmail, Schema(("isValid", "string"), ("domain", "string")),
+                Input(("email", "{{UserSignUp.email}}", true)), nextStepId: createAcct),
+            Action("CreateAccount", createAcct, Schema(("accountId", "string"), ("apiKey", "string")),
+                Input(("email", "{{UserSignUp.email}}", true), ("name", "{{UserSignUp.name}}", true)), nextStepId: par),
+
+            Parallel("OnboardingTasks", par, [sendWelcome, createCrm, provTenant], nextStepId: mergeOnboard),
+
+            Action("SendWelcomeEmail", sendWelcome, Schema(("emailId", "string")),
+                Input(("email", "{{UserSignUp.email}}", true), ("name", "{{UserSignUp.name}}", true)), nextStepId: scheduleFollow),
+            Action("ScheduleFollowUp", scheduleFollow, Schema(("taskId", "string")),
+                Input(("accountId", "{{CreateAccount.accountId}}", true))),
+
+            Action("CreateCRMRecord", createCrm, Schema(("crmId", "string")),
+                Input(("name", "{{UserSignUp.name}}", true), ("email", "{{UserSignUp.email}}", true)), nextStepId: assignRep),
+            Action("AssignSalesRep", assignRep, Schema(("repId", "string"), ("repName", "string")),
+                Input(("crmId", "{{CreateCRMRecord.crmId}}", true)), nextStepId: scheduleDemo),
+            Action("ScheduleDemo", scheduleDemo, Schema(("meetingUrl", "string")),
+                Input(("repId", "{{AssignSalesRep.repId}}", true), ("email", "{{UserSignUp.email}}", true))),
+
+            Action("ProvisionTenant", provTenant, Schema(("tenantId", "string"), ("tenantUrl", "string")),
+                Input(("accountId", "{{CreateAccount.accountId}}", true)), nextStepId: seedData),
+            Action("SeedDefaultData", seedData, Schema(("seeded", "string")),
+                Input(("tenantId", "{{ProvisionTenant.tenantId}}", true)), nextStepId: configInteg),
+            Action("ConfigureIntegrations", configInteg, Schema(("integrationsEnabled", "string")),
+                Input(("tenantId", "{{ProvisionTenant.tenantId}}", true), ("apiKey", "{{CreateAccount.apiKey}}", true))),
+
+            Action("MergeOnboarding", mergeOnboard, Schema(("onboardingComplete", "string")),
+                Input(("tenant", "{{ProvisionTenant.tenantUrl}}", true), ("rep", "{{AssignSalesRep.repName}}", true)),
+                nextStepId: cond),
+
+            Condition("IsPaidPlan", cond,
+                rules: [Rule("{{UserSignUp.plan}} == 'paid'", genInvoice)],
+                fallbackStepId: schedTrial, nextStepId: activateAcct),
+
+            Action("GenerateInvoice", genInvoice, Schema(("invoiceId", "string")),
+                Input(("accountId", "{{CreateAccount.accountId}}", true)), nextStepId: chargeCard),
+            Action("ChargeCard", chargeCard, Schema(("chargeId", "string"), ("chargeStatus", "string")),
+                Input(("paymentMethod", "{{UserSignUp.paymentMethod}}", true)), nextStepId: sendReceipt,
+                failureStrategy: FailureStrategy.Retry, retryCount: 2),
+            Action("SendReceipt", sendReceipt, Schema(("receiptUrl", "string")),
+                Input(("email", "{{UserSignUp.email}}", true), ("chargeId", "{{ChargeCard.chargeId}}", true))),
+
+            Action("ScheduleTrialReminder", schedTrial, Schema(("reminderId", "string")),
+                Input(("accountId", "{{CreateAccount.accountId}}", true))),
+
+            Action("ActivateAccount", activateAcct, Schema(("activatedAt", "string")),
+                Input(("accountId", "{{CreateAccount.accountId}}", true)), nextStepId: notifyInternal),
+            Action("NotifyInternalTeam", notifyInternal, Schema(("slackId", "string")),
+                Input(("name", "{{UserSignUp.name}}", true), ("plan", "{{UserSignUp.plan}}", true))),
+        };
+
+        Assert.Equal(20, steps.Count);
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+
+    #region 4. Data ETL Pipeline — Loop-heavy with parallel pre-processing (24 steps)
+
+    /// <summary>
+    /// Trigger(ScheduledRun) → ConnectSource → FetchSchema → Parallel(
+    ///   Branch1: ExtractTableA → ValidateA,
+    ///   Branch2: ExtractTableB → ValidateB
+    /// ) → MergeExtracts → Loop(each record: Transform → Enrich → Validate → LoadToWarehouse)
+    /// → ReconcileCounts → Condition(Discrepancy?)
+    ///   Yes → AlertDataTeam → CreateIncident → PauseDownstream,
+    ///   No  → MarkSuccess
+    /// → UpdateCatalog → NotifyStakeholders
+    /// </summary>
+    [Fact]
+    public void Valid_04_DataETLPipeline_24Steps()
+    {
+        var trigger = Id();
+        var connectSrc = Id(); var fetchSchema = Id(); var par = Id();
+        var extractA = Id(); var validateA = Id();
+        var extractB = Id(); var validateB = Id();
+        var mergeExtracts = Id(); var loop = Id();
+        var transform = Id(); var enrich = Id(); var validate = Id(); var loadToWh = Id();
+        var reconcile = Id(); var cond = Id();
+        var alertTeam = Id(); var createIncident = Id(); var pauseDown = Id();
+        var markSuccess = Id();
+        var updateCatalog = Id(); var notifyStake = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("ScheduledETLRun", trigger, connectSrc,
+                Schema(("runId", "string"), ("sourceConfig", "string"), ("targetSchema", "string"))),
+            Action("ConnectToSource", connectSrc, Schema(("connectionId", "string")),
+                Input(("config", "{{ScheduledETLRun.sourceConfig}}", true)), nextStepId: fetchSchema),
+            Action("FetchSourceSchema", fetchSchema, Schema(("tables", "array"), ("rowEstimate", "string")),
+                Input(("connectionId", "{{ConnectToSource.connectionId}}", true)), nextStepId: par),
+
+            Parallel("ExtractTables", par, [extractA, extractB], nextStepId: mergeExtracts),
+
+            Action("ExtractTableA", extractA, Schema(("recordsA", "array"), ("countA", "string")),
+                Input(("connectionId", "{{ConnectToSource.connectionId}}", true)), nextStepId: validateA),
+            Action("ValidateSchemaA", validateA, Schema(("validA", "string")),
+                Input(("records", "{{ExtractTableA.recordsA}}", true))),
+
+            Action("ExtractTableB", extractB, Schema(("recordsB", "array"), ("countB", "string")),
+                Input(("connectionId", "{{ConnectToSource.connectionId}}", true)), nextStepId: validateB),
+            Action("ValidateSchemaB", validateB, Schema(("validB", "string")),
+                Input(("records", "{{ExtractTableB.recordsB}}", true))),
+
+            Action("MergeExtracts", mergeExtracts, Schema(("allRecords", "array"), ("totalCount", "string")),
+                Input(("a", "{{ExtractTableA.recordsA}}", true), ("b", "{{ExtractTableB.recordsB}}", true)),
+                nextStepId: loop),
+
+            Loop("TransformEachRecord", loop, new TemplateReference("{{MergeExtracts.allRecords}}"), transform,
+                Schema(("loadedRecords", "array")), nextStepId: reconcile),
+
+            Action("TransformRecord", transform, Schema(("transformed", "string")),
+                Input(("targetSchema", "{{ScheduledETLRun.targetSchema}}", true)), nextStepId: enrich),
+            Action("EnrichRecord", enrich, Schema(("enriched", "string")),
+                Input(("data", "{{TransformRecord.transformed}}", true)), nextStepId: validate),
+            Action("ValidateRecord", validate, Schema(("isValid", "string"), ("errors", "string")),
+                Input(("record", "{{EnrichRecord.enriched}}", true)), nextStepId: loadToWh),
+            Action("LoadToWarehouse", loadToWh, Schema(("warehouseId", "string")),
+                Input(("record", "{{EnrichRecord.enriched}}", true), ("valid", "{{ValidateRecord.isValid}}", true))),
+
+            Action("ReconcileCounts", reconcile, Schema(("expectedCount", "string"), ("actualCount", "string"), ("discrepancy", "string")),
+                Input(("expected", "{{MergeExtracts.totalCount}}", true), ("loaded", "{{TransformEachRecord.loadedRecords}}", true)),
+                nextStepId: cond),
+
+            Condition("HasDiscrepancy", cond,
+                rules: [Rule("{{ReconcileCounts.discrepancy}} != '0'", alertTeam)],
+                fallbackStepId: markSuccess, nextStepId: updateCatalog),
+
+            Action("AlertDataTeam", alertTeam, Schema(("alertId", "string")),
+                Input(("discrepancy", "{{ReconcileCounts.discrepancy}}", true)), nextStepId: createIncident),
+            Action("CreateIncident", createIncident, Schema(("incidentId", "string")),
+                Input(("alertId", "{{AlertDataTeam.alertId}}", true)), nextStepId: pauseDown),
+            Action("PauseDownstream", pauseDown, Schema(("paused", "string")),
+                Input(("incidentId", "{{CreateIncident.incidentId}}", true))),
+
+            Action("MarkSuccess", markSuccess, Schema(("successTimestamp", "string")),
+                Input(("runId", "{{ScheduledETLRun.runId}}", true))),
+
+            Action("UpdateDataCatalog", updateCatalog, Schema(("catalogEntry", "string")),
+                Input(("runId", "{{ScheduledETLRun.runId}}", true)), nextStepId: notifyStake),
+            Action("NotifyStakeholders", notifyStake, Schema(("emailId", "string")),
+                Input(("runId", "{{ScheduledETLRun.runId}}", true))),
+        };
+
+        Assert.Equal(22, steps.Count);
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+
+    #region 5. Incident Management Pipeline (23 steps)
+
+    /// <summary>
+    /// Trigger(Alert) → EnrichAlert → ClassifySeverity → Condition(Severity?)
+    ///   Critical → Parallel(
+    ///     Branch1: PageOncall → AckWait → EscalateIfNoAck,
+    ///     Branch2: CreateWarRoom → InviteStakeholders,
+    ///     Branch3: PauseDeployments
+    ///   ) → MergeCritical → RunDiagnostics → ApplyFix → VerifyFix,
+    ///   Warning → CreateTicket → AssignEngineer → ScheduleReview,
+    ///   Info → LogAndDismiss
+    /// → UpdateStatusPage → PostMortemTemplate
+    /// </summary>
+    [Fact]
+    public void Valid_05_IncidentManagementPipeline_23Steps()
+    {
+        var trigger = Id();
+        var enrichAlert = Id(); var classifySev = Id(); var cond = Id();
+        var par = Id();
+        var pageOncall = Id(); var ackWait = Id(); var escalate = Id();
+        var createWarRoom = Id(); var inviteStake = Id();
+        var pauseDeploys = Id();
+        var mergeCritical = Id(); var runDiag = Id(); var applyFix = Id(); var verifyFix = Id();
+        var createTicket = Id(); var assignEng = Id(); var schedReview = Id();
+        var logDismiss = Id();
+        var updateStatus = Id(); var postMortem = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("AlertFired", trigger, enrichAlert,
+                Schema(("alertId", "string"), ("source", "string"), ("message", "string"), ("metrics", "string"))),
+            Action("EnrichAlert", enrichAlert, Schema(("service", "string"), ("region", "string"), ("impactedUsers", "string")),
+                Input(("alertId", "{{AlertFired.alertId}}", true)), nextStepId: classifySev),
+            Action("ClassifySeverity", classifySev, Schema(("severity", "string"), ("category", "string")),
+                Input(("message", "{{AlertFired.message}}", true), ("users", "{{EnrichAlert.impactedUsers}}", true)),
+                nextStepId: cond),
+
+            Condition("SeverityRouter", cond,
+                rules: [
+                    Rule("{{ClassifySeverity.severity}} == 'critical'", par),
+                    Rule("{{ClassifySeverity.severity}} == 'warning'", createTicket)
+                ],
+                fallbackStepId: logDismiss, nextStepId: updateStatus),
+
+            // Critical branch: Parallel response
+            Parallel("CriticalResponse", par, [pageOncall, createWarRoom, pauseDeploys], nextStepId: mergeCritical),
+
+            Action("PageOncall", pageOncall, Schema(("pageId", "string")),
+                Input(("service", "{{EnrichAlert.service}}", true)), nextStepId: ackWait),
+            Action("WaitForAck", ackWait, Schema(("acknowledged", "string"), ("responder", "string")),
+                Input(("pageId", "{{PageOncall.pageId}}", true)), nextStepId: escalate),
+            Action("EscalateIfNoAck", escalate, Schema(("escalationId", "string")),
+                Input(("acked", "{{WaitForAck.acknowledged}}", true))),
+
+            Action("CreateWarRoom", createWarRoom, Schema(("channelId", "string"), ("channelUrl", "string")),
+                Input(("service", "{{EnrichAlert.service}}", true)), nextStepId: inviteStake),
+            Action("InviteStakeholders", inviteStake, Schema(("invitedCount", "string")),
+                Input(("channel", "{{CreateWarRoom.channelId}}", true))),
+
+            Action("PauseDeployments", pauseDeploys, Schema(("pausedServices", "string")),
+                Input(("region", "{{EnrichAlert.region}}", true))),
+
+            Action("MergeCriticalActions", mergeCritical, Schema(("responder", "string"), ("warRoom", "string")),
+                Input(("responder", "{{WaitForAck.responder}}", true), ("channel", "{{CreateWarRoom.channelUrl}}", true)),
+                nextStepId: runDiag),
+            Action("RunDiagnostics", runDiag, Schema(("rootCause", "string"), ("logs", "string")),
+                Input(("service", "{{EnrichAlert.service}}", true), ("metrics", "{{AlertFired.metrics}}", true)), nextStepId: applyFix),
+            Action("ApplyFix", applyFix, Schema(("fixId", "string"), ("fixType", "string")),
+                Input(("rootCause", "{{RunDiagnostics.rootCause}}", true)), nextStepId: verifyFix,
+                failureStrategy: FailureStrategy.Retry, retryCount: 2),
+            Action("VerifyFix", verifyFix, Schema(("verified", "string")),
+                Input(("fixId", "{{ApplyFix.fixId}}", true))),
+
+            // Warning branch
+            Action("CreateTicket", createTicket, Schema(("ticketId", "string")),
+                Input(("message", "{{AlertFired.message}}", true), ("category", "{{ClassifySeverity.category}}", true)),
+                nextStepId: assignEng),
+            Action("AssignEngineer", assignEng, Schema(("assigneeId", "string")),
+                Input(("ticketId", "{{CreateTicket.ticketId}}", true)), nextStepId: schedReview),
+            Action("ScheduleReview", schedReview, Schema(("reviewDate", "string")),
+                Input(("ticketId", "{{CreateTicket.ticketId}}", true), ("assignee", "{{AssignEngineer.assigneeId}}", true))),
+
+            // Info branch
+            Action("LogAndDismiss", logDismiss, Schema(("logId", "string")),
+                Input(("alertId", "{{AlertFired.alertId}}", true))),
+
+            // Merge
+            Action("UpdateStatusPage", updateStatus, Schema(("statusPageUrl", "string")),
+                Input(("alertId", "{{AlertFired.alertId}}", true), ("severity", "{{ClassifySeverity.severity}}", true)),
+                nextStepId: postMortem),
+            Action("CreatePostMortemTemplate", postMortem, Schema(("templateId", "string")),
+                Input(("alertId", "{{AlertFired.alertId}}", true))),
+        };
+
+        Assert.Equal(21, steps.Count);
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+
+    #region 6. Marketing Campaign Pipeline (20 steps)
+
+    /// <summary>
+    /// Trigger(CampaignLaunch) → FetchAudience → SegmentAudience →
+    /// Loop(each segment: PersonalizeContent → A/BTest → SelectWinner → DeliverContent)
+    /// → AggregateMetrics → Condition(PerformanceOK?)
+    ///   Yes → ScaleUp → ExtendBudget → ReportSuccess,
+    ///   No  → PauseCampaign → AlertManager → AnalyzeFailure
+    /// → ArchiveCampaign → UpdateDashboard
+    /// </summary>
+    [Fact]
+    public void Valid_06_MarketingCampaignPipeline_20Steps()
+    {
+        var trigger = Id();
+        var fetchAud = Id(); var segment = Id(); var loop = Id();
+        var personalize = Id(); var abTest = Id(); var selectWin = Id(); var deliver = Id();
+        var aggMetrics = Id(); var cond = Id();
+        var scaleUp = Id(); var extBudget = Id(); var reportSuccess = Id();
+        var pause = Id(); var alertMgr = Id(); var analyzeFailure = Id();
+        var archive = Id(); var updateDash = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("CampaignLaunch", trigger, fetchAud,
+                Schema(("campaignId", "string"), ("budget", "decimal"), ("targetCriteria", "string"))),
+            Action("FetchAudience", fetchAud, Schema(("audienceList", "array"), ("totalSize", "string")),
+                Input(("criteria", "{{CampaignLaunch.targetCriteria}}", true)), nextStepId: segment),
+            Action("SegmentAudience", segment, Schema(("segments", "array")),
+                Input(("audience", "{{FetchAudience.audienceList}}", true)), nextStepId: loop),
+
+            Loop("ProcessSegments", loop, new TemplateReference("{{SegmentAudience.segments}}"), personalize,
+                Schema(("segmentResults", "array")), nextStepId: aggMetrics),
+
+            Action("PersonalizeContent", personalize, Schema(("contentVariants", "array")),
+                Input(("campaignId", "{{CampaignLaunch.campaignId}}", true)), nextStepId: abTest),
+            Action("ABTest", abTest, Schema(("variantAMetrics", "string"), ("variantBMetrics", "string")),
+                Input(("variants", "{{PersonalizeContent.contentVariants}}", true)), nextStepId: selectWin),
+            Action("SelectWinner", selectWin, Schema(("winningVariant", "string")),
+                Input(("metricsA", "{{ABTest.variantAMetrics}}", true), ("metricsB", "{{ABTest.variantBMetrics}}", true)),
+                nextStepId: deliver),
+            Action("DeliverContent", deliver, Schema(("deliveryId", "string"), ("deliveredCount", "string")),
+                Input(("content", "{{SelectWinner.winningVariant}}", true))),
+
+            Action("AggregateMetrics", aggMetrics, Schema(("totalDelivered", "string"), ("conversionRate", "decimal"), ("isPerforming", "string")),
+                Input(("results", "{{ProcessSegments.segmentResults}}", true)), nextStepId: cond),
+
+            Condition("PerformanceCheck", cond,
+                rules: [Rule("{{AggregateMetrics.isPerforming}} == 'true'", scaleUp)],
+                fallbackStepId: pause, nextStepId: archive),
+
+            Action("ScaleUp", scaleUp, Schema(("scaledInstances", "string")),
+                Input(("campaignId", "{{CampaignLaunch.campaignId}}", true)), nextStepId: extBudget),
+            Action("ExtendBudget", extBudget, Schema(("newBudget", "decimal")),
+                Input(("current", "{{CampaignLaunch.budget}}", true)), nextStepId: reportSuccess),
+            Action("ReportSuccess", reportSuccess, Schema(("reportUrl", "string")),
+                Input(("conversion", "{{AggregateMetrics.conversionRate}}", true))),
+
+            Action("PauseCampaign", pause, Schema(("pausedAt", "string")),
+                Input(("campaignId", "{{CampaignLaunch.campaignId}}", true)), nextStepId: alertMgr),
+            Action("AlertManager", alertMgr, Schema(("alertId", "string")),
+                Input(("conversion", "{{AggregateMetrics.conversionRate}}", true)), nextStepId: analyzeFailure),
+            Action("AnalyzeFailure", analyzeFailure, Schema(("analysis", "string")),
+                Input(("results", "{{ProcessSegments.segmentResults}}", true))),
+
+            Action("ArchiveCampaign", archive, Schema(("archiveId", "string")),
+                Input(("campaignId", "{{CampaignLaunch.campaignId}}", true)), nextStepId: updateDash),
+            Action("UpdateDashboard", updateDash, Schema(("dashUrl", "string")),
+                Input(("campaignId", "{{CampaignLaunch.campaignId}}", true))),
+        };
+
+        Assert.Equal(18, steps.Count);
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+
+    #region 7. HR Offboarding Pipeline (21 steps)
+
+    /// <summary>
+    /// Trigger(TerminationApproved) → FetchEmployee → Parallel(
+    ///   Branch1: RevokeSSO → DisableVPN → ArchiveEmail,
+    ///   Branch2: CalcFinalPay → ProcessSeverance → GeneratePayslip,
+    ///   Branch3: Loop(each asset: CreateReturnLabel → SchedulePickup)
+    /// ) → MergeOffboarding → SendExitPackage → ScheduleExitInterview
+    /// → Condition(HasEquity?)
+    ///   Yes → ProcessEquityVesting → TransferShares,
+    ///   No  → SkipEquity
+    /// → ArchiveRecord → NotifyHR
+    /// </summary>
+    [Fact]
+    public void Valid_07_HROffboardingPipeline_21Steps()
+    {
+        var trigger = Id();
+        var fetchEmp = Id(); var par = Id();
+        var revokeSSO = Id(); var disableVPN = Id(); var archiveEmail = Id();
+        var calcPay = Id(); var processSev = Id(); var genPayslip = Id();
+        var loop = Id(); var createLabel = Id(); var schedPickup = Id();
+        var mergeOff = Id(); var sendExit = Id(); var schedInterview = Id();
+        var cond = Id();
+        var processEquity = Id(); var transferShares = Id();
+        var skipEquity = Id();
+        var archiveRec = Id(); var notifyHR = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("TerminationApproved", trigger, fetchEmp,
+                Schema(("employeeId", "string"), ("lastDay", "string"), ("hasEquity", "string"), ("assets", "array"))),
+            Action("FetchEmployee", fetchEmp, Schema(("name", "string"), ("email", "string"), ("department", "string"), ("salary", "decimal")),
+                Input(("empId", "{{TerminationApproved.employeeId}}", true)), nextStepId: par),
+
+            Parallel("OffboardTasks", par, [revokeSSO, calcPay, loop], nextStepId: mergeOff),
+
+            Action("RevokeSSO", revokeSSO, Schema(("revokedAt", "string")),
+                Input(("email", "{{FetchEmployee.email}}", true)), nextStepId: disableVPN),
+            Action("DisableVPN", disableVPN, Schema(("vpnDisabled", "string")),
+                Input(("empId", "{{TerminationApproved.employeeId}}", true)), nextStepId: archiveEmail),
+            Action("ArchiveEmail", archiveEmail, Schema(("archiveId", "string")),
+                Input(("email", "{{FetchEmployee.email}}", true))),
+
+            Action("CalcFinalPay", calcPay, Schema(("grossPay", "decimal"), ("deductions", "decimal")),
+                Input(("salary", "{{FetchEmployee.salary}}", true), ("lastDay", "{{TerminationApproved.lastDay}}", true)),
+                nextStepId: processSev),
+            Action("ProcessSeverance", processSev, Schema(("severanceAmount", "decimal")),
+                Input(("grossPay", "{{CalcFinalPay.grossPay}}", true)), nextStepId: genPayslip),
+            Action("GeneratePayslip", genPayslip, Schema(("payslipUrl", "string")),
+                Input(("gross", "{{CalcFinalPay.grossPay}}", true), ("severance", "{{ProcessSeverance.severanceAmount}}", true))),
+
+            Loop("ReturnAssets", loop, new TemplateReference("{{TerminationApproved.assets}}"), createLabel,
+                Schema(("returnLabels", "array"))),
+            Action("CreateReturnLabel", createLabel, Schema(("labelUrl", "string")),
+                Input(("empName", "{{FetchEmployee.name}}", true)), nextStepId: schedPickup),
+            Action("ScheduleAssetPickup", schedPickup, Schema(("pickupDate", "string")),
+                Input(("label", "{{CreateReturnLabel.labelUrl}}", true))),
+
+            Action("MergeOffboarding", mergeOff, Schema(("summary", "string")),
+                Input(("ssoRevoked", "{{RevokeSSO.revokedAt}}", true), ("payslip", "{{GeneratePayslip.payslipUrl}}", true),
+                      ("assets", "{{ReturnAssets.returnLabels}}", true)),
+                nextStepId: sendExit),
+            Action("SendExitPackage", sendExit, Schema(("packageId", "string")),
+                Input(("email", "{{FetchEmployee.email}}", true)), nextStepId: schedInterview),
+            Action("ScheduleExitInterview", schedInterview, Schema(("meetingId", "string")),
+                Input(("email", "{{FetchEmployee.email}}", true)), nextStepId: cond),
+
+            Condition("HasEquity", cond,
+                rules: [Rule("{{TerminationApproved.hasEquity}} == 'true'", processEquity)],
+                fallbackStepId: skipEquity, nextStepId: archiveRec),
+
+            Action("ProcessEquityVesting", processEquity, Schema(("vestedShares", "string")),
+                Input(("empId", "{{TerminationApproved.employeeId}}", true)), nextStepId: transferShares),
+            Action("TransferShares", transferShares, Schema(("transferId", "string")),
+                Input(("shares", "{{ProcessEquityVesting.vestedShares}}", true))),
+
+            Action("SkipEquity", skipEquity, Schema(("skipped", "string")),
+                Input(("reason", "no equity", false))),
+
+            Action("ArchiveRecord", archiveRec, Schema(("archiveRecordId", "string")),
+                Input(("empId", "{{TerminationApproved.employeeId}}", true)), nextStepId: notifyHR),
+            Action("NotifyHR", notifyHR, Schema(("notifId", "string")),
+                Input(("name", "{{FetchEmployee.name}}", true), ("dept", "{{FetchEmployee.department}}", true))),
+        };
+
+        Assert.Equal(21, steps.Count);
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+
+    #region 8. IoT Sensor Monitoring Pipeline (20 steps)
+
+    /// <summary>
+    /// Trigger(SensorReading) → NormalizeReading → CheckThresholds → Condition(Anomaly?)
+    ///   Critical → Parallel(
+    ///     Branch1: TriggerAlarm → NotifyOperator,
+    ///     Branch2: ActivateBackup → VerifyBackup
+    ///   ) → LogCritical → Condition(AutoFixAvailable?)
+    ///     Yes → ApplyAutoFix → VerifyAutoFix,
+    ///     No  → DispatchTechnician
+    ///   Normal → StoreReading → UpdateDashboard
+    /// → ArchiveTelemetry
+    /// </summary>
+    [Fact]
+    public void Valid_08_IoTSensorMonitoringPipeline_20Steps()
+    {
+        var trigger = Id();
+        var normalize = Id(); var checkThresh = Id(); var cond1 = Id();
+        var par = Id();
+        var triggerAlarm = Id(); var notifyOp = Id();
+        var activateBackup = Id(); var verifyBackup = Id();
+        var logCritical = Id(); var cond2 = Id();
+        var applyFix = Id(); var verifyFix = Id();
+        var dispatch = Id();
+        var storeReading = Id(); var updateDash = Id();
+        var archiveTelem = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("SensorReading", trigger, normalize,
+                Schema(("sensorId", "string"), ("temperature", "decimal"), ("pressure", "decimal"), ("timestamp", "string"))),
+            Action("NormalizeReading", normalize, Schema(("normalizedTemp", "decimal"), ("normalizedPressure", "decimal")),
+                Input(("temp", "{{SensorReading.temperature}}", true), ("pressure", "{{SensorReading.pressure}}", true)),
+                nextStepId: checkThresh),
+            Action("CheckThresholds", checkThresh, Schema(("isAnomaly", "string"), ("severity", "string")),
+                Input(("temp", "{{NormalizeReading.normalizedTemp}}", true), ("pressure", "{{NormalizeReading.normalizedPressure}}", true)),
+                nextStepId: cond1),
+
+            Condition("AnomalyRouter", cond1,
+                rules: [Rule("{{CheckThresholds.isAnomaly}} == 'true'", par)],
+                fallbackStepId: storeReading, nextStepId: archiveTelem),
+
+            // Critical branch: Parallel response → nested condition
+            Parallel("CriticalResponse", par, [triggerAlarm, activateBackup], nextStepId: logCritical),
+
+            Action("TriggerAlarm", triggerAlarm, Schema(("alarmId", "string")),
+                Input(("sensorId", "{{SensorReading.sensorId}}", true)), nextStepId: notifyOp),
+            Action("NotifyOperator", notifyOp, Schema(("notifId", "string")),
+                Input(("alarmId", "{{TriggerAlarm.alarmId}}", true), ("severity", "{{CheckThresholds.severity}}", true))),
+
+            Action("ActivateBackup", activateBackup, Schema(("backupId", "string")),
+                Input(("sensorId", "{{SensorReading.sensorId}}", true)), nextStepId: verifyBackup),
+            Action("VerifyBackup", verifyBackup, Schema(("backupStatus", "string")),
+                Input(("backupId", "{{ActivateBackup.backupId}}", true))),
+
+            Action("LogCriticalEvent", logCritical, Schema(("logId", "string"), ("autoFixAvailable", "string")),
+                Input(("alarmId", "{{TriggerAlarm.alarmId}}", true), ("backup", "{{VerifyBackup.backupStatus}}", true)),
+                nextStepId: cond2),
+
+            Condition("AutoFixAvailable", cond2,
+                rules: [Rule("{{LogCriticalEvent.autoFixAvailable}} == 'true'", applyFix)],
+                fallbackStepId: dispatch),
+
+            Action("ApplyAutoFix", applyFix, Schema(("fixId", "string")),
+                Input(("sensorId", "{{SensorReading.sensorId}}", true)), nextStepId: verifyFix),
+            Action("VerifyAutoFix", verifyFix, Schema(("fixVerified", "string")),
+                Input(("fixId", "{{ApplyAutoFix.fixId}}", true))),
+
+            Action("DispatchTechnician", dispatch, Schema(("dispatchId", "string")),
+                Input(("sensorId", "{{SensorReading.sensorId}}", true), ("severity", "{{CheckThresholds.severity}}", true))),
+
+            // Normal branch
+            Action("StoreReading", storeReading, Schema(("storageId", "string")),
+                Input(("sensorId", "{{SensorReading.sensorId}}", true), ("temp", "{{NormalizeReading.normalizedTemp}}", true)),
+                nextStepId: updateDash),
+            Action("UpdateDashboard", updateDash, Schema(("dashUpdated", "string")),
+                Input(("sensorId", "{{SensorReading.sensorId}}", true))),
+
+            // Merge
+            Action("ArchiveTelemetry", archiveTelem, Schema(("archiveId", "string")),
+                Input(("sensorId", "{{SensorReading.sensorId}}", true), ("timestamp", "{{SensorReading.timestamp}}", true))),
+        };
+
+        Assert.Equal(17, steps.Count);
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+
+    #region 9. Supply Chain Management Pipeline (24 steps)
+
+    /// <summary>
+    /// Trigger(PurchaseOrder) → ValidatePO → CheckBudget → Condition(Approved?)
+    ///   Yes → Parallel(
+    ///     Branch1: CreateSupplierOrder → ConfirmSupplierOrder,
+    ///     Branch2: ReserveWarehouseSpace → PrepareReceivingDock
+    ///   ) → MergeLogistics → Loop(each lineItem: InspectQuality → UpdateInventory → RecordReceipt)
+    ///   → ReconcilePO → GenerateGRN → NotifyAccounting → UpdateERP,
+    ///   No → RejectPO → NotifyRequester
+    /// → ArchivePO → CloseWorkflow
+    /// </summary>
+    [Fact]
+    public void Valid_09_SupplyChainManagementPipeline_24Steps()
+    {
+        var trigger = Id();
+        var validatePO = Id(); var checkBudget = Id(); var cond = Id();
+        var par = Id();
+        var createSO = Id(); var confirmSO = Id();
+        var reserveWH = Id(); var prepDock = Id();
+        var mergeLog = Id(); var loop = Id();
+        var inspectQual = Id(); var updateInv = Id(); var recordReceipt = Id();
+        var reconcilePO = Id(); var genGRN = Id(); var notifyAcct = Id(); var updateERP = Id();
+        var rejectPO = Id(); var notifyReq = Id();
+        var archivePO = Id(); var closeWF = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("PurchaseOrderReceived", trigger, validatePO,
+                Schema(("poId", "string"), ("supplierId", "string"), ("lineItems", "array"), ("totalValue", "decimal"), ("requesterId", "string"))),
+            Action("ValidatePO", validatePO, Schema(("isValid", "string"), ("validationErrors", "string")),
+                Input(("poId", "{{PurchaseOrderReceived.poId}}", true)), nextStepId: checkBudget),
+            Action("CheckBudget", checkBudget, Schema(("withinBudget", "string"), ("remainingBudget", "decimal")),
+                Input(("amount", "{{PurchaseOrderReceived.totalValue}}", true)), nextStepId: cond),
+
+            Condition("BudgetApproval", cond,
+                rules: [Rule("{{CheckBudget.withinBudget}} == 'true'", par)],
+                fallbackStepId: rejectPO, nextStepId: archivePO),
+
+            // Approved: Parallel logistics
+            Parallel("CoordinateLogistics", par, [createSO, reserveWH], nextStepId: mergeLog),
+
+            Action("CreateSupplierOrder", createSO, Schema(("soId", "string")),
+                Input(("supplierId", "{{PurchaseOrderReceived.supplierId}}", true), ("items", "{{PurchaseOrderReceived.lineItems}}", true)),
+                nextStepId: confirmSO),
+            Action("ConfirmSupplierOrder", confirmSO, Schema(("confirmedAt", "string"), ("estimatedDelivery", "string")),
+                Input(("soId", "{{CreateSupplierOrder.soId}}", true))),
+
+            Action("ReserveWarehouseSpace", reserveWH, Schema(("reservationId", "string"), ("dockNumber", "string")),
+                Input(("items", "{{PurchaseOrderReceived.lineItems}}", true)), nextStepId: prepDock),
+            Action("PrepareReceivingDock", prepDock, Schema(("dockReady", "string")),
+                Input(("dock", "{{ReserveWarehouseSpace.dockNumber}}", true))),
+
+            Action("MergeLogistics", mergeLog, Schema(("logisticsReady", "string")),
+                Input(("delivery", "{{ConfirmSupplierOrder.estimatedDelivery}}", true), ("dock", "{{ReserveWarehouseSpace.dockNumber}}", true)),
+                nextStepId: loop),
+
+            Loop("InspectLineItems", loop, new TemplateReference("{{PurchaseOrderReceived.lineItems}}"), inspectQual,
+                Schema(("inspectionResults", "array")), nextStepId: reconcilePO),
+
+            Action("InspectQuality", inspectQual, Schema(("passedQC", "string"), ("defectRate", "decimal")),
+                Input(("dock", "{{ReserveWarehouseSpace.dockNumber}}", true)), nextStepId: updateInv),
+            Action("UpdateInventory", updateInv, Schema(("newStockLevel", "string")),
+                Input(("passed", "{{InspectQuality.passedQC}}", true)), nextStepId: recordReceipt),
+            Action("RecordReceipt", recordReceipt, Schema(("receiptId", "string")),
+                Input(("qcResult", "{{InspectQuality.passedQC}}", true))),
+
+            Action("ReconcilePO", reconcilePO, Schema(("reconciled", "string"), ("discrepancies", "string")),
+                Input(("poId", "{{PurchaseOrderReceived.poId}}", true), ("results", "{{InspectLineItems.inspectionResults}}", true)),
+                nextStepId: genGRN),
+            Action("GenerateGRN", genGRN, Schema(("grnId", "string")),
+                Input(("poId", "{{PurchaseOrderReceived.poId}}", true)), nextStepId: notifyAcct),
+            Action("NotifyAccounting", notifyAcct, Schema(("notifId", "string")),
+                Input(("grnId", "{{GenerateGRN.grnId}}", true), ("amount", "{{PurchaseOrderReceived.totalValue}}", true)),
+                nextStepId: updateERP),
+            Action("UpdateERP", updateERP, Schema(("erpRecordId", "string")),
+                Input(("poId", "{{PurchaseOrderReceived.poId}}", true), ("grnId", "{{GenerateGRN.grnId}}", true))),
+
+            // Rejected
+            Action("RejectPO", rejectPO, Schema(("rejectionId", "string")),
+                Input(("poId", "{{PurchaseOrderReceived.poId}}", true), ("budget", "{{CheckBudget.remainingBudget}}", true)),
+                nextStepId: notifyReq),
+            Action("NotifyRequester", notifyReq, Schema(("emailId", "string")),
+                Input(("requesterId", "{{PurchaseOrderReceived.requesterId}}", true))),
+
+            // Merge
+            Action("ArchivePO", archivePO, Schema(("archiveId", "string")),
+                Input(("poId", "{{PurchaseOrderReceived.poId}}", true)), nextStepId: closeWF),
+            Action("CloseWorkflow", closeWF, Schema(("closedAt", "string")),
+                Input(("poId", "{{PurchaseOrderReceived.poId}}", true))),
+        };
+
+        Assert.Equal(22, steps.Count);
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+
+    #region 10. Content Moderation Pipeline with Deep Nesting (22 steps)
+
+    /// <summary>
+    /// Trigger(ContentSubmitted) → FetchContent → Parallel(
+    ///   Branch1: TextAnalysis → SentimentScore,
+    ///   Branch2: ImageAnalysis → Condition(HasFaces?)
+    ///     Yes → BlurFaces → FlagForReview,
+    ///     No  → MarkImageSafe
+    /// ) → AggregateResults → Condition(Overall?)
+    ///   Safe → PublishContent → IndexForSearch → NotifyAuthor,
+    ///   Unsafe → QuarantineContent → NotifyModerator → LogViolation
+    /// → UpdateMetrics → ArchiveDecision
+    /// </summary>
+    [Fact]
+    public void Valid_10_ContentModerationDeepNesting_22Steps()
+    {
+        var trigger = Id();
+        var fetchContent = Id(); var par = Id();
+        var textAnalysis = Id(); var sentimentScore = Id();
+        var imageAnalysis = Id(); var condFaces = Id();
+        var blurFaces = Id(); var flagReview = Id();
+        var markSafe = Id();
+        var aggResults = Id(); var condOverall = Id();
+        var publishContent = Id(); var indexSearch = Id(); var notifyAuthor = Id();
+        var quarantine = Id(); var notifyMod = Id(); var logViolation = Id();
+        var updateMetrics = Id(); var archiveDecision = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("ContentSubmitted", trigger, fetchContent,
+                Schema(("contentId", "string"), ("authorId", "string"), ("text", "string"), ("imageUrl", "string"))),
+            Action("FetchContent", fetchContent, Schema(("fullText", "string"), ("imageData", "string")),
+                Input(("contentId", "{{ContentSubmitted.contentId}}", true)), nextStepId: par),
+
+            Parallel("AnalyzeContent", par, [textAnalysis, imageAnalysis], nextStepId: aggResults),
+
+            // Text branch
+            Action("TextAnalysis", textAnalysis, Schema(("toxicity", "decimal"), ("spam", "decimal")),
+                Input(("text", "{{FetchContent.fullText}}", true)), nextStepId: sentimentScore),
+            Action("SentimentScore", sentimentScore, Schema(("sentiment", "string"), ("confidence", "decimal")),
+                Input(("text", "{{FetchContent.fullText}}", true))),
+
+            // Image branch with nested condition
+            Action("ImageAnalysis", imageAnalysis, Schema(("hasFaces", "string"), ("nsfwScore", "decimal")),
+                Input(("image", "{{FetchContent.imageData}}", true)), nextStepId: condFaces),
+            Condition("HasFacesCheck", condFaces,
+                rules: [Rule("{{ImageAnalysis.hasFaces}} == 'true'", blurFaces)],
+                fallbackStepId: markSafe),
+
+            Action("BlurFaces", blurFaces, Schema(("blurredImageUrl", "string")),
+                Input(("image", "{{FetchContent.imageData}}", true)), nextStepId: flagReview),
+            Action("FlagForReview", flagReview, Schema(("flagId", "string")),
+                Input(("contentId", "{{ContentSubmitted.contentId}}", true))),
+
+            Action("MarkImageSafe", markSafe, Schema(("safetyStatus", "string")),
+                Input(("contentId", "{{ContentSubmitted.contentId}}", true))),
+
+            // Merge: aggregate from both branches
+            Action("AggregateResults", aggResults, Schema(("overallSafe", "string"), ("combinedScore", "decimal")),
+                Input(("toxicity", "{{TextAnalysis.toxicity}}", true), ("nsfw", "{{ImageAnalysis.nsfwScore}}", true),
+                      ("sentiment", "{{SentimentScore.sentiment}}", true)),
+                nextStepId: condOverall),
+
+            Condition("OverallDecision", condOverall,
+                rules: [Rule("{{AggregateResults.overallSafe}} == 'true'", publishContent)],
+                fallbackStepId: quarantine, nextStepId: updateMetrics),
+
+            // Safe branch
+            Action("PublishContent", publishContent, Schema(("publishedUrl", "string")),
+                Input(("contentId", "{{ContentSubmitted.contentId}}", true)), nextStepId: indexSearch),
+            Action("IndexForSearch", indexSearch, Schema(("indexId", "string")),
+                Input(("url", "{{PublishContent.publishedUrl}}", true)), nextStepId: notifyAuthor),
+            Action("NotifyAuthor", notifyAuthor, Schema(("emailId", "string")),
+                Input(("authorId", "{{ContentSubmitted.authorId}}", true), ("url", "{{PublishContent.publishedUrl}}", true))),
+
+            // Unsafe branch
+            Action("QuarantineContent", quarantine, Schema(("quarantineId", "string")),
+                Input(("contentId", "{{ContentSubmitted.contentId}}", true)), nextStepId: notifyMod),
+            Action("NotifyModerator", notifyMod, Schema(("modNotifId", "string")),
+                Input(("score", "{{AggregateResults.combinedScore}}", true)), nextStepId: logViolation),
+            Action("LogViolation", logViolation, Schema(("violationId", "string")),
+                Input(("contentId", "{{ContentSubmitted.contentId}}", true))),
+
+            // Merge
+            Action("UpdateMetrics", updateMetrics, Schema(("metricsUpdated", "string")),
+                Input(("contentId", "{{ContentSubmitted.contentId}}", true)), nextStepId: archiveDecision),
+            Action("ArchiveDecision", archiveDecision, Schema(("archiveId", "string")),
+                Input(("contentId", "{{ContentSubmitted.contentId}}", true), ("decision", "{{AggregateResults.overallSafe}}", true))),
+        };
+
+        Assert.Equal(20, steps.Count);
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+
+    // =========================================================================
+    // INVALID WORKFLOWS — Structural & Referencing Violations
+    // =========================================================================
+
+    #region 11-20: Invalid Workflows
+
+    [Fact]
+    public void Invalid_11_NoTrigger_ShouldThrow()
+    {
+        var steps = new List<StepDefinition>
+        {
+            Action("A", Id(), Schema(("out", "string"))),
+            Action("B", Id(), Schema(("out", "string"))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("trigger", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Invalid_12_DuplicateTriggers_ShouldThrow()
+    {
+        var a = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T1", Id(), a, Schema(("out", "string"))),
+            Trigger("T2", Id(), a, Schema(("out", "string"))),
+            Action("A", a, Schema(("out", "string"))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("exactly one", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Invalid_13_CycleInGraph_ShouldThrow()
+    {
+        var t = Id(); var a = Id(); var b = Id(); var c = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, a, Schema(("out", "string"))),
+            Action("A", a, Schema(("out", "string")), nextStepId: b),
+            Action("B", b, Schema(("out", "string")), nextStepId: c),
+            Action("C", c, Schema(("out", "string")), nextStepId: a),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Invalid_14_OrphanedStep_ShouldThrow()
+    {
+        var t = Id(); var a = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, a, Schema(("out", "string"))),
+            Action("A", a, Schema(("out", "string"))),
+            Action("Orphan", Id(), Schema(("out", "string"))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("unreachable", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Invalid_15_DuplicateStepNames_ShouldThrow()
+    {
+        var t = Id(); var a = Id(); var b = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, a, Schema(("out", "string"))),
+            Action("Same", a, Schema(("out", "string")), nextStepId: b),
+            Action("Same", b, Schema(("out", "string"))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("Duplicate", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Invalid_16_NextStepIdRefsNonExistentStep_ShouldThrow()
+    {
+        var t = Id(); var a = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, a, Schema(("out", "string"))),
+            Action("A", a, Schema(("out", "string")), nextStepId: Id()),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("not found", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Invalid_17_TemplateRefsNonExistentStep_ShouldThrow()
+    {
+        var t = Id(); var a = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, a, Schema(("sender", "string"))),
+            Action("A", a, Schema(("out", "string")),
+                Input(("x", "{{Ghost.field}}", true))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("unknown step", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Invalid_18_TemplateRefsNonExistentField_ShouldThrow()
+    {
+        var t = Id(); var a = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, a, Schema(("sender", "string"))),
+            Action("A", a, Schema(("out", "string")),
+                Input(("x", "{{T.doesNotExist}}", true))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("non-existent field", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Parallel branch B1 tries to reference A1 in sibling branch — violation.
+    /// </summary>
+    [Fact]
+    public void Invalid_19_ParallelBranchRefsSiblingBranch_ShouldThrow()
+    {
+        var t = Id(); var par = Id();
+        var a1 = Id(); var a2 = Id(); var b1 = Id(); var merge = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, par, Schema(("data", "string"))),
+            Parallel("Fork", par, [a1, b1], nextStepId: merge),
+            Action("A1", a1, Schema(("a1Out", "string")), nextStepId: a2),
+            Action("A2", a2, Schema(("a2Out", "string"))),
+            Action("B1", b1, Schema(("b1Out", "string")),
+                Input(("x", "{{A1.a1Out}}", true))),
+            Action("Merge", merge, Schema(("out", "string"))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("guaranteed to complete", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Step after condition references a step inside one of the condition branches.
+    /// Only one branch runs, so the merge point can't guarantee that branch step completed.
+    /// </summary>
+    [Fact]
+    public void Invalid_20_MergeAfterConditionRefsBranchInternal_ShouldThrow()
+    {
+        var t = Id(); var cond = Id();
+        var b1 = Id(); var c1 = Id(); var merge = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, cond, Schema(("priority", "string"))),
+            Condition("Route", cond,
+                rules: [Rule("{{T.priority}} == 'high'", b1)],
+                fallbackStepId: c1, nextStepId: merge),
+            Action("HighPath", b1, Schema(("b1Out", "string"))),
+            Action("LowPath", c1, Schema(("c1Out", "string"))),
+            Action("MergeStep", merge, Schema(("out", "string")),
+                Input(("x", "{{HighPath.b1Out}}", true))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("guaranteed to complete", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Step after a loop references a step inside the loop body.
+    /// Loop body steps are per-iteration and not available after the loop.
+    /// </summary>
+    [Fact]
+    public void Invalid_21_StepAfterLoopRefsLoopBodyStep_ShouldThrow()
+    {
+        var t = Id(); var a = Id(); var loop = Id();
+        var l1 = Id(); var l2 = Id(); var after = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, a, Schema(("rows", "array"))),
+            Action("Fetch", a, Schema(("rows", "array")), nextStepId: loop),
+            Loop("MyLoop", loop, new TemplateReference("{{Fetch.rows}}"), l1,
+                Schema(("results", "array")), nextStepId: after),
+            Action("L1", l1, Schema(("l1Out", "string")), nextStepId: l2),
+            Action("L2", l2, Schema(("l2Out", "string"))),
+            Action("After", after, Schema(("out", "string")),
+                Input(("x", "{{L2.l2Out}}", true))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("guaranteed to complete", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Condition branch step B references another condition branch step C.
+    /// Only one branch executes so C is not guaranteed to be available.
+    /// </summary>
+    [Fact]
+    public void Invalid_22_ConditionBranchRefsOtherBranch_ShouldThrow()
+    {
+        var t = Id(); var cond = Id();
+        var b1 = Id(); var b2 = Id(); var c1 = Id(); var merge = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, cond, Schema(("val", "string"))),
+            Condition("Route", cond,
+                rules: [Rule("{{T.val}} == 'a'", b1), Rule("{{T.val}} == 'b'", c1)],
+                nextStepId: merge),
+            Action("B1", b1, Schema(("b1Out", "string")), nextStepId: b2),
+            Action("B2", b2, Schema(("b2Out", "string")),
+                Input(("x", "{{C1.c1Out}}", true))),
+            Action("C1", c1, Schema(("c1Out", "string"))),
+            Action("Merge", merge, Schema(("out", "string"))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("guaranteed to complete", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Parallel branch has a loop, and a step AFTER the parallel merge references
+    /// a step inside that loop body — double isolation violation.
+    /// </summary>
+    [Fact]
+    public void Invalid_23_MergeAfterParallelRefsLoopBodyInsideBranch_ShouldThrow()
+    {
+        var t = Id(); var par = Id();
+        var loop = Id(); var l1 = Id();
+        var b1 = Id();
+        var merge = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, par, Schema(("items", "array"))),
+            Parallel("Fork", par, [loop, b1], nextStepId: merge),
+            Loop("LoopBranch", loop, new TemplateReference("{{T.items}}"), l1, Schema(("results", "array"))),
+            Action("L1", l1, Schema(("l1Out", "string"))),
+            Action("B1", b1, Schema(("b1Out", "string"))),
+            Action("Merge", merge, Schema(("out", "string")),
+                Input(("x", "{{L1.l1Out}}", true))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("guaranteed to complete", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Only one step (trigger with no downstream).
+    /// </summary>
+    [Fact]
+    public void Invalid_24_OnlyTriggerStep_ShouldThrow()
+    {
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", Id(), Id(), Schema(("out", "string"))),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("at least two", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    #endregion
+
+    // =========================================================================
+    // VALID — Edge Cases for Merge Step References
+    // =========================================================================
+
+    #region 25-30: Valid Edge Cases
+
+    /// <summary>
+    /// Merge step after parallel correctly references deep chain outputs from all branches.
+    /// </summary>
+    [Fact]
+    public void Valid_25_MergeRefsDeepChainOutputsFromAllBranches()
+    {
+        var t = Id(); var par = Id();
+        var a1 = Id(); var a2 = Id(); var a3 = Id();
+        var b1 = Id(); var b2 = Id(); var b3 = Id();
+        var merge = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, par, Schema(("data", "string"))),
+            Parallel("Fork", par, [a1, b1], nextStepId: merge),
+            Action("A1", a1, Schema(("a1Out", "string")), nextStepId: a2),
+            Action("A2", a2, Schema(("a2Out", "string")), nextStepId: a3),
+            Action("A3", a3, Schema(("a3Out", "string"))),
+            Action("B1", b1, Schema(("b1Out", "string")), nextStepId: b2),
+            Action("B2", b2, Schema(("b2Out", "string")), nextStepId: b3),
+            Action("B3", b3, Schema(("b3Out", "string"))),
+            Action("Merge", merge, Schema(("combined", "string")),
+                Input(("fromA3", "{{A3.a3Out}}", true), ("fromB3", "{{B3.b3Out}}", true),
+                      ("fromA1", "{{A1.a1Out}}", true), ("fromB1", "{{B1.b1Out}}", true))),
+        };
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    /// <summary>
+    /// Loop body step references trigger output (parent context) and earlier body step output.
+    /// </summary>
+    [Fact]
+    public void Valid_26_LoopBodyRefsTriggerAndEarlierBodyStep()
+    {
+        var t = Id(); var fetch = Id(); var loop = Id();
+        var l1 = Id(); var l2 = Id(); var l3 = Id();
+        var after = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, fetch, Schema(("apiKey", "string"), ("batchId", "string"))),
+            Action("Fetch", fetch, Schema(("rows", "array")),
+                Input(("batchId", "{{T.batchId}}", true)), nextStepId: loop),
+            Loop("Process", loop, new TemplateReference("{{Fetch.rows}}"), l1,
+                Schema(("processed", "array")), nextStepId: after),
+            Action("L1", l1, Schema(("enriched", "string")),
+                Input(("key", "{{T.apiKey}}", true)), nextStepId: l2),
+            Action("L2", l2, Schema(("validated", "string")),
+                Input(("data", "{{L1.enriched}}", true)), nextStepId: l3),
+            Action("L3", l3, Schema(("loaded", "string")),
+                Input(("data", "{{L2.validated}}", true), ("key", "{{T.apiKey}}", true))),
+            Action("After", after, Schema(("summary", "string")),
+                Input(("results", "{{Process.processed}}", true))),
+        };
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    /// <summary>
+    /// Condition with 3 rules + fallback, each branch is multi-step.
+    /// Merge step references only upstream, not branch internals.
+    /// </summary>
+    [Fact]
+    public void Valid_27_ConditionWith3RulesAndFallback_NoMergeBranchRef()
+    {
+        var t = Id(); var classify = Id(); var cond = Id();
+        var h1 = Id(); var h2 = Id();
+        var m1 = Id(); var m2 = Id();
+        var l1 = Id(); var l2 = Id();
+        var f1 = Id();
+        var merge = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, classify, Schema(("text", "string"))),
+            Action("Classify", classify, Schema(("category", "string"), ("confidence", "decimal")),
+                Input(("text", "{{T.text}}", true)), nextStepId: cond),
+            Condition("CategoryRouter", cond,
+                rules: [
+                    Rule("{{Classify.category}} == 'high'", h1),
+                    Rule("{{Classify.category}} == 'medium'", m1),
+                    Rule("{{Classify.category}} == 'low'", l1),
+                ],
+                fallbackStepId: f1, nextStepId: merge),
+            Action("H1", h1, Schema(("h1Out", "string")), nextStepId: h2),
+            Action("H2", h2, Schema(("h2Out", "string"))),
+            Action("M1", m1, Schema(("m1Out", "string")), nextStepId: m2),
+            Action("M2", m2, Schema(("m2Out", "string"))),
+            Action("L1", l1, Schema(("l1Out", "string")), nextStepId: l2),
+            Action("L2", l2, Schema(("l2Out", "string"))),
+            Action("F1", f1, Schema(("f1Out", "string"))),
+            Action("MergePoint", merge, Schema(("result", "string")),
+                Input(("category", "{{Classify.category}}", true))),
+        };
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    /// <summary>
+    /// Parallel inside a condition branch — deeply nested valid structure.
+    /// </summary>
+    [Fact]
+    public void Valid_28_ParallelInsideConditionBranch()
+    {
+        var t = Id(); var cond = Id();
+        var par = Id();
+        var p1 = Id(); var p2 = Id(); var mergeP = Id();
+        var fallback = Id();
+        var mergeC = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, cond, Schema(("mode", "string"), ("data", "string"))),
+            Condition("ModeRouter", cond,
+                rules: [Rule("{{T.mode}} == 'parallel'", par)],
+                fallbackStepId: fallback, nextStepId: mergeC),
+            Parallel("InnerFork", par, [p1, p2], nextStepId: mergeP),
+            Action("P1", p1, Schema(("p1Out", "string")),
+                Input(("data", "{{T.data}}", true))),
+            Action("P2", p2, Schema(("p2Out", "string")),
+                Input(("data", "{{T.data}}", true))),
+            Action("MergeParallel", mergeP, Schema(("merged", "string")),
+                Input(("fromP1", "{{P1.p1Out}}", true), ("fromP2", "{{P2.p2Out}}", true))),
+            Action("Fallback", fallback, Schema(("fbOut", "string")),
+                Input(("data", "{{T.data}}", true))),
+            Action("MergeCondition", mergeC, Schema(("final", "string")),
+                Input(("mode", "{{T.mode}}", true))),
+        };
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    /// <summary>
+    /// Two sequential conditions — second condition references first condition's upstream.
+    /// </summary>
+    [Fact]
+    public void Valid_29_TwoSequentialConditions()
+    {
+        var t = Id(); var analyze = Id(); var cond1 = Id();
+        var a1 = Id(); var b1 = Id();
+        var middle = Id(); var cond2 = Id();
+        var c1 = Id(); var d1 = Id();
+        var final_ = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, analyze, Schema(("input", "string"))),
+            Action("Analyze", analyze, Schema(("scoreA", "decimal"), ("scoreB", "decimal")),
+                Input(("input", "{{T.input}}", true)), nextStepId: cond1),
+            Condition("FirstRoute", cond1,
+                rules: [Rule("{{Analyze.scoreA}} > 50", a1)],
+                fallbackStepId: b1, nextStepId: middle),
+            Action("A1", a1, Schema(("a1Out", "string"))),
+            Action("B1", b1, Schema(("b1Out", "string"))),
+            Action("Middle", middle, Schema(("middleOut", "string")),
+                Input(("score", "{{Analyze.scoreA}}", true)), nextStepId: cond2),
+            Condition("SecondRoute", cond2,
+                rules: [Rule("{{Analyze.scoreB}} > 70", c1)],
+                fallbackStepId: d1, nextStepId: final_),
+            Action("C1", c1, Schema(("c1Out", "string"))),
+            Action("D1", d1, Schema(("d1Out", "string"))),
+            Action("Final", final_, Schema(("result", "string")),
+                Input(("scoreA", "{{Analyze.scoreA}}", true), ("scoreB", "{{Analyze.scoreB}}", true))),
+        };
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    /// <summary>
+    /// Condition step with only 1 rule + fallback — valid per requirement 8.6.7
+    /// (at least one rule, not at least two).
+    /// </summary>
+    [Fact]
+    public void Valid_30_ConditionWithOneRuleAndFallback()
+    {
+        var t = Id(); var cond = Id();
+        var yes = Id(); var no = Id(); var merge = Id();
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, cond, Schema(("flag", "string"))),
+            Condition("SimpleRoute", cond,
+                rules: [Rule("{{T.flag}} == 'yes'", yes)],
+                fallbackStepId: no, nextStepId: merge),
+            Action("YesPath", yes, Schema(("yOut", "string"))),
+            Action("NoPath", no, Schema(("nOut", "string"))),
+            Action("Done", merge, Schema(("result", "string")),
+                Input(("flag", "{{T.flag}}", true))),
+        };
+        var ex = Record.Exception(() => Build(steps));
+        Assert.Null(ex);
+    }
+
+    #endregion
+}
