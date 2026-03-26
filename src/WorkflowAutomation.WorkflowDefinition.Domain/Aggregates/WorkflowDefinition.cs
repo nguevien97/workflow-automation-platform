@@ -25,116 +25,125 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
         AddDomainEvent(new WorkflowDefinitionCreatedEvent(id, workflowId));
     }
 
-    public StepDefinition GetStep(StepId stepId)
+    private void Validate()
     {
-        return _steps.FirstOrDefault(s => s.Id == stepId)
-            ?? throw new InvalidOperationException($"Step '{stepId}' not found in this workflow definition.");
-    }
+        if (_steps.Count <= 1)
+            throw new InvalidOperationException("Workflow definition must contain at least two steps.");
 
-    public void Validate()
-    {
-        if (_steps.Count == 0)
-            throw new InvalidOperationException("Workflow definition must contain at least one step.");
-
+        // validate that there is exactly one trigger step and it's the first step
         var triggerSteps = _steps.Where(s => s.StepType == StepType.Trigger).ToList();
         if (triggerSteps.Count == 0)
             throw new InvalidOperationException("Workflow definition must contain at least one trigger step.");
         if (triggerSteps.Count > 1)
             throw new InvalidOperationException("Workflow definition must contain exactly one trigger step.");
 
-        if (_steps[0].StepType != StepType.Trigger)
+        var triggerStep = (TriggerStepDefinition)_steps[0];
+        if (triggerStep.StepType != StepType.Trigger)
             throw new InvalidOperationException("The first step in a workflow definition must be a trigger step.");
 
+        if (triggerStep.NextStepId == null)
+            throw new InvalidOperationException("The trigger step must have a NextStepId pointing to the next step.");
+
+        if (triggerStep.OutputSchema == null)
+            throw new InvalidOperationException("The trigger step must have a non-null OutputSchema.");
+
         var stepDict = _steps.ToDictionary(s => s.Id);
-        var visited = new HashSet<StepId>();
-        var recursionStack = new HashSet<StepId>();
-        
-        // Output schemas required for Trigger and Action
-        foreach (var step in _steps)
+        StepDefinition GetStep(StepId stepId)
         {
-            if (step is TriggerStepDefinition trigger && trigger.OutputSchema == null)
-                throw new InvalidOperationException($"Trigger step '{step.Id}' must have a non-null OutputSchema.");
-            
-            if (step is ActionStepDefinition action && action.OutputSchema == null)
-                throw new InvalidOperationException($"Action step '{step.Id}' must have a non-null OutputSchema.");
+            if (!stepDict.TryGetValue(stepId, out var step))
+                throw new InvalidOperationException($"Step '{stepId}' not found in this workflow definition.");
+            return step;
         }
 
-        void ValidateBranch(StepId entryStepId, HashSet<StepId> availableSteps)
+        var visitStates = new Dictionary<StepId, VisitState>();
+        _steps.ForEach(s => visitStates[s.Id] = VisitState.NotVisited);
+        visitStates[triggerStep.Id] = VisitState.Completed; // Mark trigger step as completed to allow downstream steps to reference it
+        void DFS(StepId stepId, HashSet<StepId> availableSteps)
         {
-            var currentId = entryStepId;
-            var currentAvailableSteps = new HashSet<StepId>(availableSteps);
-
-            while (currentId != null)
+            if (visitStates[stepId] != VisitState.NotVisited)
             {
-                if (!stepDict.TryGetValue(currentId, out var currentStep))
-                    throw new InvalidOperationException($"Step '{currentId}' is referenced but does not exist in the workflow.");
+                throw new InvalidOperationException($"Workflow definition contains a cycle at step '{GetStep(stepId).Name}'.");
+            }
 
-                if (visited.Contains(currentId))
+            visitStates[stepId] = VisitState.InProgress;
+            var step = GetStep(stepId);
+            ValidateTemplatesInStep(step, availableSteps);
+            var downStreamAvailableSteps = new HashSet<StepId>(availableSteps);
+
+            switch (step)
+            {
+                case ActionStepDefinition actionStep:
+                    downStreamAvailableSteps.Add(actionStep.Id); // Action step itself becomes available for downstream steps after it
+                    if (actionStep.NextStepId is not null)
+                    {
+                        DFS(actionStep.NextStepId.Value, downStreamAvailableSteps);
+                    }
                     break;
-                
-                visited.Add(currentId);
-                recursionStack.Add(currentId);
-                
-                // Validate templates for the current step
-                ValidateStepTemplates(currentStep, currentAvailableSteps);
-                
-                // Add current step to available steps for downstream
-                currentAvailableSteps.Add(currentId);
-
-                if (currentStep is ConditionStepDefinition conditionStep)
-                {
+                case ConditionStepDefinition conditionStep:
                     foreach (var rule in conditionStep.Rules)
                     {
-                        ValidateBranch(rule.TargetStepId, currentAvailableSteps);
+                        DFS(rule.TargetStepId, downStreamAvailableSteps);
                     }
-                    if (conditionStep.FallbackStepId != null)
-                    {
-                        ValidateBranch(conditionStep.FallbackStepId.Value, currentAvailableSteps);
-                    }
-                }
-                else if (currentStep is ParallelStepDefinition parallelStep)
-                {
-                    foreach (var branchEntryId in parallelStep.BranchEntryStepIds)
-                    {
-                        ValidateBranch(branchEntryId, currentAvailableSteps);
-                    }
-                    
-                    // The merge step (NextStepId) can reference all steps from all parallel branches
-                    // We need to collect them, but traversing them here again just to collect ids is complex. 
-                    // For now, any step in any parallel branch is added to the main available steps after completion.
-                    // Let's defer adding branch steps to available steps until we traverse them properly or simplify it.
-                    // According to requirements: "The merge step ... Can reference all steps upstream ... AND steps from all parallel branches"
-                    // So we add all reachable steps from branches to currentAvailableSteps.
-                    foreach (var branchEntryId in parallelStep.BranchEntryStepIds)
-                    {
-                        CollectBranchSteps(branchEntryId, currentAvailableSteps);
-                    }
-                }
+                    if (conditionStep.FallbackStepId is not null)
+                        DFS(conditionStep.FallbackStepId.Value, downStreamAvailableSteps);
 
-                recursionStack.Remove(currentId);
-                
-                if (currentStep.NextStepId != null)
-                {
-                    if (recursionStack.Contains(currentStep.NextStepId.Value))
-                        throw new InvalidOperationException($"Cycle detected in workflow definition at step '{currentStep.NextStepId.Value}'.");
-                    
-                    currentId = currentStep.NextStepId.Value;
-                }
-                else
-                {
+                    if (conditionStep.NextStepId is not null)
+                        DFS(conditionStep.NextStepId.Value, downStreamAvailableSteps);
                     break;
-                }
+                case ParallelStepDefinition parallelStep:
+                    foreach (var branchEntryId in parallelStep.BranchEntryStepIds)
+                    {
+                        DFS(branchEntryId, downStreamAvailableSteps);
+                    }
+
+                    // Collect all steps in parallel branches as available steps for downstream steps after the parallel
+                    var parallelBranchSteps = new HashSet<StepId>();
+                    parallelBranchSteps.UnionWith(downStreamAvailableSteps); // Add the parallel step itself as available for downstream steps
+                    foreach (var branchEntryId in parallelStep.BranchEntryStepIds)
+                    {
+                        CollectParallelBranchSteps(branchEntryId, parallelBranchSteps);
+                    }
+
+                    if (parallelStep.NextStepId is not null)
+                        DFS(parallelStep.NextStepId.Value, parallelBranchSteps);
+                    break;
+                case LoopStepDefinition loopStep:
+                    DFS(loopStep.LoopEntryStepId, downStreamAvailableSteps);
+
+                    var afterLoopStreamAvailableSteps = new HashSet<StepId>(downStreamAvailableSteps) { loopStep.Id }; // The loop step itself is also considered available for downstream steps after the loop
+                    if (loopStep.NextStepId is not null)
+                        DFS(loopStep.NextStepId.Value, afterLoopStreamAvailableSteps);
+
+                    break;
+
             }
+
+            visitStates[stepId] = VisitState.Completed;
         }
 
-        void CollectBranchSteps(StepId branchEntryId, HashSet<StepId> collection)
+        void CollectParallelBranchSteps(StepId branchEntryId, HashSet<StepId> collection)
         {
-            StepId? cid = branchEntryId;
-            while (cid != null && stepDict.TryGetValue(cid.Value, out var currentStep))
+            StepId? currentStepId = branchEntryId;
+            while (currentStepId is not null)
             {
-                collection.Add(cid.Value);
-                cid = currentStep.NextStepId;
+                var currentStep = GetStep(currentStepId.Value);
+                switch (currentStep)
+                {
+                    case LoopStepDefinition loopStep:
+                    case ActionStepDefinition actionStep:
+                        collection.Add(currentStepId.Value);
+                        break;
+                    case ParallelStepDefinition parallelStep:
+                        foreach (var childBranchEntryId in parallelStep.BranchEntryStepIds)
+                        {
+                            CollectParallelBranchSteps(childBranchEntryId, collection);
+                        }
+                        break;
+                }
+
+                currentStepId = currentStep.NextStepId;
             }
+
         }
 
         void ValidateTemplatesInString(string text, HashSet<StepId> availableSteps, StepId stepId)
@@ -164,7 +173,7 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
             }
         }
         
-        void ValidateStepTemplates(StepDefinition step, HashSet<StepId> availableSteps)
+        void ValidateTemplatesInStep(StepDefinition step, HashSet<StepId> availableSteps)
         {
             if (step is ActionStepDefinition actionStep)
             {
@@ -184,44 +193,23 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
             else if (step is LoopStepDefinition loopStep)
             {
                 ValidateTemplatesInString(loopStep.SourceArray.Expression, availableSteps, step.Id);
-                
-                // For loops, we need to validate inner steps with the loop context
-                var loopAvailableSteps = new HashSet<StepId>(availableSteps);
-                foreach (var s in loopStep.Steps)
-                {
-                    ValidateStepTemplates(s, loopAvailableSteps);
-                    loopAvailableSteps.Add(s.Id);
-                }
             }
         }
+        
+        DFS(triggerStep.NextStepId.Value, new HashSet<StepId> { triggerStep.Id });
 
-        var initialAvailableSteps = new HashSet<StepId>();
-        ValidateBranch(_steps[0].Id, initialAvailableSteps);
-
-        var reachableStepIds = new HashSet<StepId>(visited);
-
-        // Check steps contained inside LoopStepDefinition.
-        void CheckLoopSteps(StepDefinition step)
+        // After DFS, check if there are any steps that were not visited, which means they are unreachable
+        var unreachableSteps = visitStates.Where(kv => kv.Value == VisitState.NotVisited).Select(kv => GetStep(kv.Key).Name).ToList();
+        if (unreachableSteps.Count > 0)
         {
-            if (step is LoopStepDefinition loopStep && loopStep.Steps != null)
-            {
-                foreach(var s in loopStep.Steps)
-                {
-                    reachableStepIds.Add(s.Id);
-                    CheckLoopSteps(s);
-                }
-            }
+            throw new InvalidOperationException($"Workflow definition contains unreachable steps: {string.Join(", ", unreachableSteps)}");
         }
+    }
 
-        foreach(var stepId in visited)
-        {
-            CheckLoopSteps(stepDict[stepId]);
-        }
-
-        if (reachableStepIds.Count < _steps.Count)
-        {
-            var orphanedSteps = _steps.Where(s => !reachableStepIds.Contains(s.Id)).Select(s => s.Id).ToList();
-            throw new InvalidOperationException($"Workflow definition contains unreachable (orphaned) steps: {string.Join(", ", orphanedSteps)}");
-        }
+    private enum VisitState
+    {
+        NotVisited,
+        InProgress,
+        Completed
     }
 }

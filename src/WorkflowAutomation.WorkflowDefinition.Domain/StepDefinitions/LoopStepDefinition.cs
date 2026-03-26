@@ -9,37 +9,36 @@ public sealed class LoopStepDefinition : StepDefinition
 {
     public TemplateReference SourceArray { get; }
     public StepOutputSchema TriggerOutputSchema { get; }
-    public IReadOnlyList<StepDefinition> Steps { get; }
+    public StepOutputSchema OutputSchema { get; }
+    public readonly StepId LoopEntryStepId;
     public ConcurrencyMode ConcurrencyMode { get; }
     public int? MaxConcurrency { get; }
     public IterationFailureStrategy IterationFailureStrategy { get; }
-    public int RetryCount { get; }
 
     public LoopStepDefinition(
         StepId id,
         string name,
         TemplateReference sourceArray,
+        StepId loopEntryStepId,
         StepOutputSchema triggerOutputSchema,
-        IReadOnlyList<StepDefinition> steps,
+        StepOutputSchema outputSchema,
         ConcurrencyMode concurrencyMode,
         IterationFailureStrategy iterationFailureStrategy,
-        int retryCount = 0,
         StepId? nextStepId = null,
         int? maxConcurrency = null)
         : base(id, StepType.Loop, name, nextStepId)
     {
         ArgumentNullException.ThrowIfNull(sourceArray);
-        ArgumentOutOfRangeException.ThrowIfNegative(retryCount);
 
         if (concurrencyMode == ConcurrencyMode.Parallel && maxConcurrency.HasValue)
             ArgumentOutOfRangeException.ThrowIfLessThan(maxConcurrency.Value, 1);
 
         SourceArray = sourceArray;
         TriggerOutputSchema = triggerOutputSchema;
-        Steps = steps;
+        OutputSchema = outputSchema;
+        LoopEntryStepId = loopEntryStepId;
         ConcurrencyMode = concurrencyMode;
         MaxConcurrency = maxConcurrency;
         IterationFailureStrategy = iterationFailureStrategy;
-        RetryCount = retryCount;
     }
 }
