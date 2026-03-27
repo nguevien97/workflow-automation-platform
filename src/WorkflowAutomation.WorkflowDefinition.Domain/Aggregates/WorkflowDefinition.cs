@@ -48,6 +48,7 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
             throw new InvalidOperationException("The trigger step must have a non-null OutputSchema.");
 
         var stepDict = _steps.ToDictionary(s => s.Id);
+
         StepDefinition GetStep(StepId stepId)
         {
             if (!stepDict.TryGetValue(stepId, out var step))
@@ -62,95 +63,231 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
         if (duplicateNames.Count > 0)
             throw new InvalidOperationException($"Duplicate step names: {string.Join(", ", duplicateNames)}");
 
-        var visitStates = new Dictionary<StepId, VisitState>();
-        _steps.ForEach(s => visitStates[s.Id] = VisitState.NotVisited);
-        visitStates[triggerStep.Id] = VisitState.Completed; // Mark trigger step as completed to allow downstream steps to reference it
-        void DFS(StepId stepId, HashSet<StepId> availableSteps)
+        ValidateReferencedStepIdsExist();
+        ValidateRequiredSchemas();
+        ValidateGraphShape();
+        ValidateReferenceSemantics();
+
+        void ValidateReferencedStepIdsExist()
         {
-            var step = GetStep(stepId);
-            if (visitStates[stepId] != VisitState.NotVisited)
+            foreach (var step in _steps)
             {
-                throw new InvalidOperationException($"Workflow definition contains a cycle at step '{GetStep(stepId).Name}'.");
+                if (step.NextStepId.HasValue)
+                    GetStep(step.NextStepId.Value);
+
+                switch (step)
+                {
+                    case ConditionStepDefinition condition:
+                        foreach (var rule in condition.Rules)
+                            GetStep(rule.TargetStepId);
+                        if (condition.FallbackStepId.HasValue)
+                            GetStep(condition.FallbackStepId.Value);
+                        break;
+                    case ParallelStepDefinition parallel:
+                        foreach (var branchEntryId in parallel.BranchEntryStepIds)
+                            GetStep(branchEntryId);
+                        break;
+                    case LoopStepDefinition loop:
+                        GetStep(loop.LoopEntryStepId);
+                        break;
+                }
+            }
+        }
+
+        void ValidateRequiredSchemas()
+        {
+            foreach (var step in _steps)
+            {
+                if (step is TriggerStepDefinition trigger && trigger.OutputSchema is null)
+                    throw new InvalidOperationException(
+                        $"Trigger step '{trigger.Name}' must have a non-null OutputSchema.");
+
+                if (step is ActionStepDefinition action && action.OutputSchema is null)
+                    throw new InvalidOperationException(
+                        $"Action step '{action.Name}' must have a non-null OutputSchema.");
+            }
+        }
+
+        void ValidateGraphShape()
+        {
+            var visitStates = _steps.ToDictionary(step => step.Id, _ => VisitState.NotVisited);
+
+            void Visit(StepId stepId)
+            {
+                var state = visitStates[stepId];
+                if (state == VisitState.InProgress)
+                    throw new InvalidOperationException(
+                        $"Workflow definition contains a cycle at step '{GetStep(stepId).Name}'.");
+                if (state == VisitState.Completed)
+                    return;
+
+                visitStates[stepId] = VisitState.InProgress;
+
+                foreach (var nextStepId in GetStructuralOutgoingEdges(GetStep(stepId)))
+                    Visit(nextStepId);
+
+                visitStates[stepId] = VisitState.Completed;
             }
 
-            visitStates[stepId] = VisitState.InProgress;
-            ValidateTemplatesInStep(step, availableSteps);
-            var downStreamAvailableSteps = new HashSet<StepId>(availableSteps);
+            Visit(triggerStep.Id);
+
+            var unreachableSteps = visitStates
+                .Where(kv => kv.Value == VisitState.NotVisited)
+                .Select(kv => GetStep(kv.Key).Name)
+                .ToList();
+
+            if (unreachableSteps.Count > 0)
+                throw new InvalidOperationException(
+                    $"Workflow definition contains unreachable steps: {string.Join(", ", unreachableSteps)}");
+        }
+
+        IReadOnlyList<StepId> GetStructuralOutgoingEdges(StepDefinition step)
+        {
+            var edges = new List<StepId>();
+
+            if (step.NextStepId.HasValue)
+                edges.Add(step.NextStepId.Value);
 
             switch (step)
             {
-                case ActionStepDefinition actionStep:
-                    downStreamAvailableSteps.Add(actionStep.Id); // Action step itself becomes available for downstream steps after it
-                    if (actionStep.NextStepId is not null)
-                    {
-                        DFS(actionStep.NextStepId.Value, downStreamAvailableSteps);
-                    }
+                case ConditionStepDefinition condition:
+                    edges.AddRange(condition.Rules.Select(rule => rule.TargetStepId));
+                    if (condition.FallbackStepId.HasValue)
+                        edges.Add(condition.FallbackStepId.Value);
                     break;
-                case ConditionStepDefinition conditionStep:
-                    foreach (var rule in conditionStep.Rules)
-                    {
-                        DFS(rule.TargetStepId, downStreamAvailableSteps);
-                    }
-                    if (conditionStep.FallbackStepId is not null)
-                        DFS(conditionStep.FallbackStepId.Value, downStreamAvailableSteps);
-
-                    if (conditionStep.NextStepId is not null)
-                        DFS(conditionStep.NextStepId.Value, downStreamAvailableSteps);
+                case ParallelStepDefinition parallel:
+                    edges.AddRange(parallel.BranchEntryStepIds);
                     break;
-                case ParallelStepDefinition parallelStep:
-                    foreach (var branchEntryId in parallelStep.BranchEntryStepIds)
-                    {
-                        DFS(branchEntryId, downStreamAvailableSteps);
-                    }
-
-                    // Collect all steps in parallel branches as available steps for downstream steps after the parallel
-                    var parallelBranchSteps = new HashSet<StepId>();
-                    parallelBranchSteps.UnionWith(downStreamAvailableSteps); // Add the parallel step itself as available for downstream steps
-                    foreach (var branchEntryId in parallelStep.BranchEntryStepIds)
-                    {
-                        CollectParallelBranchSteps(branchEntryId, parallelBranchSteps);
-                    }
-
-                    if (parallelStep.NextStepId is not null)
-                        DFS(parallelStep.NextStepId.Value, parallelBranchSteps);
+                case LoopStepDefinition loop:
+                    edges.Add(loop.LoopEntryStepId);
                     break;
-                case LoopStepDefinition loopStep:
-                    DFS(loopStep.LoopEntryStepId, downStreamAvailableSteps);
-
-                    var afterLoopStreamAvailableSteps = new HashSet<StepId>(downStreamAvailableSteps) { loopStep.Id }; // The loop step itself is also considered available for downstream steps after the loop
-                    if (loopStep.NextStepId is not null)
-                        DFS(loopStep.NextStepId.Value, afterLoopStreamAvailableSteps);
-
-                    break;
-
             }
 
-            visitStates[stepId] = VisitState.Completed;
+            return edges;
         }
 
-        void CollectParallelBranchSteps(StepId branchEntryId, HashSet<StepId> collection)
+        void ValidateReferenceSemantics()
         {
-            StepId? currentStepId = branchEntryId;
-            while (currentStepId is not null)
-            {
-                var currentStep = GetStep(currentStepId.Value);
-                switch (currentStep)
-                {
-                    case LoopStepDefinition loopStep:
-                    case ActionStepDefinition actionStep:
-                        collection.Add(currentStepId.Value);
-                        break;
-                    case ParallelStepDefinition parallelStep:
-                        foreach (var childBranchEntryId in parallelStep.BranchEntryStepIds)
-                        {
-                            CollectParallelBranchSteps(childBranchEntryId, collection);
-                        }
-                        break;
-                }
+            /*
+             * Reference visibility in this workflow model is defined by owner-step
+             * barriers, not by explicit branch-tail edges:
+             *
+             * 1. Condition, Parallel, and Loop each own a nested local scope.
+             *    Their branch/body chains terminate at null.
+             *
+             * 2. When a local chain reaches null, control returns to the owner step.
+             *    If the owner has NextStepId, execution continues there after the
+             *    owner's own completion rule is satisfied. If not, control returns to
+             *    the enclosing scope.
+             *
+             * 3. Guaranteed-completed references are therefore scope-based:
+             *    - Inside a branch/body: upstream before the owner + earlier steps in
+             *      the same local path.
+             *    - After Condition: only the upstream set before the condition.
+             *      Branch-internal outputs are not guaranteed because only one branch
+             *      executes.
+             *    - After Parallel: upstream before the parallel + all outputs that are
+             *      guaranteed when each branch returns to the parallel owner.
+             *    - After Loop: upstream before the loop + the loop node's own output.
+             *      Loop-body step outputs are iteration-local and must not leak out.
+             *
+             * 4. A branch/body path must terminate at null. It must not explicitly
+             *    jump into its owner's continuation step via NextStepId. That would
+             *    bypass the owner-step barrier semantics and make the graph mean two
+             *    different things at once.
+             */
+            ValidateLocalPath(triggerStep.NextStepId, new HashSet<StepId> { triggerStep.Id });
+        }
 
-                currentStepId = currentStep.NextStepId;
+        HashSet<StepId> ValidateLocalPath(
+            StepId? startStepId,
+            HashSet<StepId> guaranteedAvailable,
+            StepId? forbiddenContinuationStepId = null)
+        {
+            var availableAfterPath = new HashSet<StepId>(guaranteedAvailable);
+            var currentStepId = startStepId;
+
+            while (currentStepId.HasValue)
+            {
+                if (forbiddenContinuationStepId.HasValue &&
+                    currentStepId.Value == forbiddenContinuationStepId.Value)
+                {
+                    throw new InvalidOperationException(
+                        $"Branch/body path must terminate at null and cannot jump directly to owner continuation step '{GetStep(currentStepId.Value).Name}'.");
+                }
+                var step = GetStep(currentStepId.Value);
+                ValidateTemplatesInStep(step, availableAfterPath);
+
+                switch (step)
+                {
+                    case ActionStepDefinition actionStep:
+                    {
+                        availableAfterPath.Add(actionStep.Id);
+                        currentStepId = actionStep.NextStepId;
+                        break;
+                    }
+                    case ConditionStepDefinition conditionStep:
+                    {
+                        foreach (var rule in conditionStep.Rules)
+                        {
+                            ValidateLocalPath(
+                                rule.TargetStepId,
+                                new HashSet<StepId>(availableAfterPath),
+                                conditionStep.NextStepId);
+                        }
+
+                        if (conditionStep.FallbackStepId.HasValue)
+                        {
+                            ValidateLocalPath(
+                                conditionStep.FallbackStepId.Value,
+                                new HashSet<StepId>(availableAfterPath),
+                                conditionStep.NextStepId);
+                        }
+
+                        currentStepId = conditionStep.NextStepId;
+                        break;
+                    }
+                    case ParallelStepDefinition parallelStep:
+                    {
+                        var guaranteedAfterParallel = new HashSet<StepId>(availableAfterPath);
+
+                        foreach (var branchEntryId in parallelStep.BranchEntryStepIds)
+                        {
+                            guaranteedAfterParallel.UnionWith(
+                                ValidateLocalPath(
+                                    branchEntryId,
+                                    new HashSet<StepId>(availableAfterPath),
+                                    parallelStep.NextStepId));
+                        }
+
+                        availableAfterPath = guaranteedAfterParallel;
+                        currentStepId = parallelStep.NextStepId;
+                        break;
+                    }
+                    case LoopStepDefinition loopStep:
+                    {
+                        ValidateLocalPath(
+                            loopStep.LoopEntryStepId,
+                            new HashSet<StepId>(availableAfterPath),
+                            loopStep.NextStepId);
+
+                        availableAfterPath.Add(loopStep.Id);
+                        currentStepId = loopStep.NextStepId;
+                        break;
+                    }
+                    case TriggerStepDefinition nestedTrigger:
+                    {
+                        availableAfterPath.Add(nestedTrigger.Id);
+                        currentStepId = nestedTrigger.NextStepId;
+                        break;
+                    }
+                    default:
+                        throw new InvalidOperationException(
+                            $"Unsupported step type '{step.StepType}'.");
+                }
             }
 
+            return availableAfterPath;
         }
 
         void ValidateTemplatesInString(string text, HashSet<StepId> availableSteps, StepId stepId)
@@ -162,6 +299,9 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
                 var refStepName = match.Groups[1].Value;
                 var refFieldName = match.Groups[2].Value;
 
+                if (string.Equals(refStepName, "env", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 var referencedStep = _steps.FirstOrDefault(s => s.Name == refStepName);
                 if (referencedStep == null)
                     throw new InvalidOperationException($"Step '{stepId}' references unknown step '{refStepName}' in template '{match.Value}'.");
@@ -170,7 +310,7 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
                     throw new InvalidOperationException($"Step '{stepId}' references step '{refStepName}' before it is guaranteed to complete in template '{match.Value}'.");
 
                 // Get OutputSchema
-                StepOutputSchema schema = null;
+                StepOutputSchema? schema = null;
                 if (referencedStep is TriggerStepDefinition triggerStep) schema = triggerStep.OutputSchema;
                 else if (referencedStep is ActionStepDefinition actionStep) schema = actionStep.OutputSchema;
                 else if (referencedStep is LoopStepDefinition loopStep) schema = loopStep.OutputSchema;
@@ -179,7 +319,7 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
                     throw new InvalidOperationException($"Step '{stepId}' references non-existent field '{refFieldName}' on step '{refStepName}' in template '{match.Value}'.");
             }
         }
-        
+
         void ValidateTemplatesInStep(StepDefinition step, HashSet<StepId> availableSteps)
         {
             if (step is ActionStepDefinition actionStep)
@@ -201,15 +341,6 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
             {
                 ValidateTemplatesInString(loopStep.SourceArray.Expression, availableSteps, step.Id);
             }
-        }
-        
-        DFS(triggerStep.NextStepId.Value, new HashSet<StepId> { triggerStep.Id });
-
-        // After DFS, check if there are any steps that were not visited, which means they are unreachable
-        var unreachableSteps = visitStates.Where(kv => kv.Value == VisitState.NotVisited).Select(kv => GetStep(kv.Key).Name).ToList();
-        if (unreachableSteps.Count > 0)
-        {
-            throw new InvalidOperationException($"Workflow definition contains unreachable steps: {string.Join(", ", unreachableSteps)}");
         }
     }
 

@@ -1460,5 +1460,280 @@ public class WorkflowDefinitionTests
         Assert.Null(ex);
     }
 
+    /// <summary>
+    /// Deeply nested condition branch illegally points its terminal step directly
+    /// at the owning condition's continuation step instead of ending at null and
+    /// returning control to the condition owner.
+    /// </summary>
+    [Fact]
+    public void Invalid_31_ConditionBranchJumpsDirectlyToOwnerContinuation_ShouldThrow()
+    {
+        var t = Id(); var analyze = Id(); var cond = Id();
+        var highPrep = Id(); var highEnrich = Id(); var highFinalize = Id();
+        var lowPrep = Id(); var lowFinalize = Id();
+        var after = Id(); var archive = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, analyze, Schema(("mode", "string"), ("payload", "string"))),
+            Action("Analyze", analyze, Schema(("bucket", "string"), ("normalized", "string")),
+                Input(("payload", "{{T.payload}}", true)), nextStepId: cond),
+            Condition("Route", cond,
+                rules: [Rule("{{Analyze.bucket}} == 'high'", highPrep)],
+                fallbackStepId: lowPrep,
+                nextStepId: after),
+
+            Action("HighPrep", highPrep, Schema(("prep", "string")),
+                Input(("payload", "{{T.payload}}", true)), nextStepId: highEnrich),
+            Action("HighEnrich", highEnrich, Schema(("enriched", "string")),
+                Input(("prep", "{{HighPrep.prep}}", true)), nextStepId: highFinalize),
+            Action("HighFinalize", highFinalize, Schema(("done", "string")),
+                Input(("data", "{{HighEnrich.enriched}}", true)), nextStepId: after),
+
+            Action("LowPrep", lowPrep, Schema(("prep", "string")),
+                Input(("payload", "{{T.payload}}", true)), nextStepId: lowFinalize),
+            Action("LowFinalize", lowFinalize, Schema(("done", "string")),
+                Input(("prep", "{{LowPrep.prep}}", true))),
+
+            Action("AfterRoute", after, Schema(("result", "string")),
+                Input(("bucket", "{{Analyze.bucket}}", true)), nextStepId: archive),
+            Action("Archive", archive, Schema(("archiveId", "string")),
+                Input(("result", "{{AfterRoute.result}}", true))),
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("owner continuation", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A complex parallel branch chain illegally jumps directly into the parallel
+    /// owner's continuation step. Parallel branches must terminate at null and
+    /// return to the parallel owner for synchronization.
+    /// </summary>
+    [Fact]
+    public void Invalid_32_ParallelBranchJumpsDirectlyToOwnerContinuation_ShouldThrow()
+    {
+        var t = Id(); var fetch = Id(); var fork = Id();
+        var a1 = Id(); var a2 = Id(); var a3 = Id();
+        var b1 = Id(); var b2 = Id();
+        var c1 = Id(); var c2 = Id();
+        var merge = Id(); var notify = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, fetch, Schema(("batchId", "string"), ("payload", "string"))),
+            Action("Fetch", fetch, Schema(("dataset", "string"), ("rows", "array")),
+                Input(("batch", "{{T.batchId}}", true)), nextStepId: fork),
+            Parallel("Fork", fork, [a1, b1, c1], nextStepId: merge),
+
+            Action("BranchA1", a1, Schema(("a1Out", "string")),
+                Input(("dataset", "{{Fetch.dataset}}", true)), nextStepId: a2),
+            Action("BranchA2", a2, Schema(("a2Out", "string")),
+                Input(("previous", "{{BranchA1.a1Out}}", true)), nextStepId: a3),
+            Action("BranchA3", a3, Schema(("a3Out", "string")),
+                Input(("previous", "{{BranchA2.a2Out}}", true)), nextStepId: merge),
+
+            Action("BranchB1", b1, Schema(("b1Out", "string")),
+                Input(("payload", "{{T.payload}}", true)), nextStepId: b2),
+            Action("BranchB2", b2, Schema(("b2Out", "string")),
+                Input(("previous", "{{BranchB1.b1Out}}", true))),
+
+            Action("BranchC1", c1, Schema(("c1Out", "string")),
+                Input(("dataset", "{{Fetch.dataset}}", true)), nextStepId: c2),
+            Action("BranchC2", c2, Schema(("c2Out", "string")),
+                Input(("previous", "{{BranchC1.c1Out}}", true))),
+
+            Action("Merge", merge, Schema(("merged", "string")),
+                Input(("a", "{{BranchA2.a2Out}}", true), ("b", "{{BranchB2.b2Out}}", true), ("c", "{{BranchC2.c2Out}}", true)),
+                nextStepId: notify),
+            Action("Notify", notify, Schema(("notificationId", "string")),
+                Input(("merged", "{{Merge.merged}}", true))),
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("owner continuation", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Nested loop body chain illegally jumps directly to the loop owner's
+    /// continuation step. The loop body must terminate at null so the loop owner
+    /// can aggregate iteration results before continuing.
+    /// </summary>
+    [Fact]
+    public void Invalid_33_LoopBodyJumpsDirectlyToOwnerContinuation_ShouldThrow()
+    {
+        var t = Id(); var fetch = Id(); var classify = Id(); var loop = Id();
+        var l1 = Id(); var l2 = Id(); var l3 = Id();
+        var after = Id(); var publish = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, fetch, Schema(("jobId", "string"), ("items", "array"), ("tenant", "string"))),
+            Action("FetchItems", fetch, Schema(("rows", "array"), ("count", "string")),
+                Input(("items", "{{T.items}}", true)), nextStepId: classify),
+            Action("ClassifyBatch", classify, Schema(("bucket", "string"), ("rows", "array")),
+                Input(("rows", "{{FetchItems.rows}}", true)), nextStepId: loop),
+            Loop("ProcessRows", loop, new TemplateReference("{{ClassifyBatch.rows}}"), l1,
+                Schema(("processed", "array")), nextStepId: after),
+
+            Action("LoopStage1", l1, Schema(("mapped", "string")),
+                Input(("tenant", "{{T.tenant}}", true)), nextStepId: l2),
+            Action("LoopStage2", l2, Schema(("validated", "string")),
+                Input(("mapped", "{{LoopStage1.mapped}}", true)), nextStepId: l3),
+            Action("LoopStage3", l3, Schema(("stored", "string")),
+                Input(("validated", "{{LoopStage2.validated}}", true)), nextStepId: after),
+
+            Action("AfterLoop", after, Schema(("summary", "string")),
+                Input(("processed", "{{ProcessRows.processed}}", true)), nextStepId: publish),
+            Action("Publish", publish, Schema(("publishId", "string")),
+                Input(("summary", "{{AfterLoop.summary}}", true))),
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("owner continuation", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A condition branch contains an inner parallel. One inner parallel branch illegally
+    /// points to the parallel owner's continuation step instead of ending at null. This
+    /// verifies the guard still holds when the violating owner is itself nested in a
+    /// condition branch.
+    /// </summary>
+    [Fact]
+    public void Invalid_34_ParallelInsideConditionBranch_JumpsToInnerOwnerContinuation_ShouldThrow()
+    {
+        var t = Id(); var gate = Id(); var cond = Id();
+        var innerPar = Id();
+        var p1 = Id(); var p2 = Id(); var p3 = Id();
+        var innerMerge = Id(); var branchTail = Id();
+        var fallback = Id();
+        var afterCondition = Id(); var finalize = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, gate, Schema(("mode", "string"), ("payload", "string"), ("tenant", "string"))),
+            Action("Gate", gate, Schema(("route", "string"), ("normalized", "string")),
+                Input(("payload", "{{T.payload}}", true)), nextStepId: cond),
+            Condition("Route", cond,
+                rules: [Rule("{{Gate.route}} == 'parallel'", innerPar)],
+                fallbackStepId: fallback,
+                nextStepId: afterCondition),
+
+            Parallel("InnerParallel", innerPar, [p1, p2], nextStepId: innerMerge),
+            Action("P1", p1, Schema(("p1Out", "string")),
+                Input(("tenant", "{{T.tenant}}", true)), nextStepId: p3),
+            Action("P3", p3, Schema(("p3Out", "string")),
+                Input(("previous", "{{P1.p1Out}}", true)), nextStepId: innerMerge),
+            Action("P2", p2, Schema(("p2Out", "string")),
+                Input(("normalized", "{{Gate.normalized}}", true))),
+            Action("InnerMerge", innerMerge, Schema(("merged", "string")),
+                Input(("left", "{{P1.p1Out}}", true), ("right", "{{P2.p2Out}}", true)), nextStepId: branchTail),
+            Action("BranchTail", branchTail, Schema(("tail", "string")),
+                Input(("merged", "{{InnerMerge.merged}}", true))),
+
+            Action("Fallback", fallback, Schema(("fb", "string")),
+                Input(("payload", "{{T.payload}}", true))),
+
+            Action("AfterCondition", afterCondition, Schema(("after", "string")),
+                Input(("route", "{{Gate.route}}", true)), nextStepId: finalize),
+            Action("Finalize", finalize, Schema(("done", "string")),
+                Input(("after", "{{AfterCondition.after}}", true))),
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("owner continuation", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A parallel branch contains a loop whose body illegally points to the loop owner's
+    /// continuation step inside that branch. This guards loop-body barrier semantics even
+    /// when the loop itself lives under a parallel owner.
+    /// </summary>
+    [Fact]
+    public void Invalid_35_LoopInsideParallelBranch_JumpsToInnerOwnerContinuation_ShouldThrow()
+    {
+        var t = Id(); var prepare = Id(); var par = Id();
+        var loop = Id(); var l1 = Id(); var l2 = Id();
+        var branchAfterLoop = Id();
+        var sibling1 = Id(); var sibling2 = Id();
+        var merge = Id(); var publish = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, prepare, Schema(("items", "array"), ("batch", "string"), ("region", "string"))),
+            Action("Prepare", prepare, Schema(("rows", "array"), ("descriptor", "string")),
+                Input(("items", "{{T.items}}", true)), nextStepId: par),
+            Parallel("OuterParallel", par, [loop, sibling1], nextStepId: merge),
+
+            Loop("LoopBranch", loop, new TemplateReference("{{Prepare.rows}}"), l1,
+                Schema(("loopResults", "array")), nextStepId: branchAfterLoop),
+            Action("LoopStage1", l1, Schema(("mapped", "string")),
+                Input(("batch", "{{T.batch}}", true)), nextStepId: l2),
+            Action("LoopStage2", l2, Schema(("validated", "string")),
+                Input(("mapped", "{{LoopStage1.mapped}}", true)), nextStepId: branchAfterLoop),
+            Action("BranchAfterLoop", branchAfterLoop, Schema(("branchSummary", "string")),
+                Input(("results", "{{LoopBranch.loopResults}}", true))),
+
+            Action("Sibling1", sibling1, Schema(("s1", "string")),
+                Input(("region", "{{T.region}}", true)), nextStepId: sibling2),
+            Action("Sibling2", sibling2, Schema(("s2", "string")),
+                Input(("descriptor", "{{Prepare.descriptor}}", true))),
+
+            Action("Merge", merge, Schema(("merged", "string")),
+                Input(("left", "{{BranchAfterLoop.branchSummary}}", true), ("right", "{{Sibling2.s2}}", true)), nextStepId: publish),
+            Action("Publish", publish, Schema(("publishId", "string")),
+                Input(("merged", "{{Merge.merged}}", true))),
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("owner continuation", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A condition branch contains a loop, and the loop's post-body continuation then
+    /// illegally jumps directly to the owning condition's continuation step. This verifies
+    /// the validator rejects bypassing two owner barriers in a nested scope.
+    /// </summary>
+    [Fact]
+    public void Invalid_36_LoopInsideConditionBranch_JumpsToOuterOwnerContinuation_ShouldThrow()
+    {
+        var t = Id(); var analyze = Id(); var cond = Id();
+        var loop = Id(); var l1 = Id(); var l2 = Id();
+        var branchAfterLoop = Id();
+        var fallback = Id();
+        var afterCondition = Id(); var archive = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", t, analyze, Schema(("rows", "array"), ("kind", "string"), ("apiKey", "string"))),
+            Action("Analyze", analyze, Schema(("route", "string"), ("rows", "array")),
+                Input(("rows", "{{T.rows}}", true)), nextStepId: cond),
+            Condition("Route", cond,
+                rules: [Rule("{{Analyze.route}} == 'loop'", loop)],
+                fallbackStepId: fallback,
+                nextStepId: afterCondition),
+
+            Loop("BranchLoop", loop, new TemplateReference("{{Analyze.rows}}"), l1,
+                Schema(("processed", "array")), nextStepId: branchAfterLoop),
+            Action("Loop1", l1, Schema(("mapped", "string")),
+                Input(("key", "{{T.apiKey}}", true)), nextStepId: l2),
+            Action("Loop2", l2, Schema(("stored", "string")),
+                Input(("mapped", "{{Loop1.mapped}}", true))),
+            Action("BranchAfterLoop", branchAfterLoop, Schema(("branchSummary", "string")),
+                Input(("processed", "{{BranchLoop.processed}}", true)), nextStepId: afterCondition),
+
+            Action("Fallback", fallback, Schema(("fb", "string")),
+                Input(("kind", "{{T.kind}}", true))),
+
+            Action("AfterCondition", afterCondition, Schema(("summary", "string")),
+                Input(("kind", "{{T.kind}}", true)), nextStepId: archive),
+            Action("Archive", archive, Schema(("archiveId", "string")),
+                Input(("summary", "{{AfterCondition.summary}}", true))),
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("owner continuation", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     #endregion
 }
