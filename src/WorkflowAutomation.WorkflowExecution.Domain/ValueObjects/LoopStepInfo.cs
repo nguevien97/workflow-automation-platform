@@ -13,13 +13,14 @@ public sealed class LoopStepInfo : StepDefinitionInfo
 
     public LoopStepInfo(
         StepId stepId,
+        string name,
         string sourceArrayExpression,
         StepId loopEntryStepId,
         ConcurrencyMode concurrencyMode,
         IterationFailureStrategy iterationFailureStrategy,
         StepId? nextStepId = null,
         int? maxConcurrency = null)
-        : base(stepId, StepType.Loop, nextStepId)
+        : base(stepId, name, StepType.Loop, nextStepId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceArrayExpression);
         if (loopEntryStepId == default)

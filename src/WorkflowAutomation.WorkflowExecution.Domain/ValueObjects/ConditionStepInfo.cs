@@ -10,10 +10,11 @@ public sealed class ConditionStepInfo : StepDefinitionInfo
 
     public ConditionStepInfo(
         StepId stepId,
+        string name,
         IReadOnlyList<ConditionRuleInfo> rules,
         StepId? nextStepId = null,
         StepId? fallbackStepId = null)
-        : base(stepId, StepType.Condition, nextStepId)
+        : base(stepId, name, StepType.Condition, nextStepId)
     {
         ArgumentNullException.ThrowIfNull(rules);
         if (rules.Count == 0)

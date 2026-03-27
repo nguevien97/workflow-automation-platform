@@ -9,9 +9,10 @@ public sealed class ParallelStepInfo : StepDefinitionInfo
 
     public ParallelStepInfo(
         StepId stepId,
+        string name,
         IReadOnlyList<StepId> branchEntryStepIds,
         StepId? nextStepId = null)
-        : base(stepId, StepType.Parallel, nextStepId)
+        : base(stepId, name, StepType.Parallel, nextStepId)
     {
         ArgumentNullException.ThrowIfNull(branchEntryStepIds);
         if (branchEntryStepIds.Count < 2)

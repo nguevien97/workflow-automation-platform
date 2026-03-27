@@ -13,13 +13,14 @@ public sealed class ActionStepInfo : StepDefinitionInfo
 
     public ActionStepInfo(
         StepId stepId,
+        string name,
         IntegrationId integrationId,
         string commandName,
         IReadOnlyDictionary<string, string> inputMappings,
         FailureStrategy failureStrategy,
         int maxRetries = 0,
         StepId? nextStepId = null)
-        : base(stepId, StepType.Action, nextStepId)
+        : base(stepId, name, StepType.Action, nextStepId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(commandName);
         ArgumentNullException.ThrowIfNull(inputMappings);

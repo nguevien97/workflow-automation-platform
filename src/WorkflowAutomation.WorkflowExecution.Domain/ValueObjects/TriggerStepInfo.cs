@@ -11,11 +11,12 @@ public sealed class TriggerStepInfo : StepDefinitionInfo
 
     public TriggerStepInfo(
         StepId stepId,
+        string name,
         IntegrationId integrationId,
         string commandName,
         IReadOnlyDictionary<string, string> configuration,
         StepId? nextStepId = null)
-        : base(stepId, StepType.Trigger, nextStepId)
+        : base(stepId, name, StepType.Trigger, nextStepId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(commandName);
         ArgumentNullException.ThrowIfNull(configuration);

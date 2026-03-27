@@ -1,18 +1,20 @@
 using WorkflowAutomation.SharedKernel.Domain;
+using WorkflowAutomation.SharedKernel.Domain.Ids;
 using WorkflowAutomation.WorkflowExecution.Domain.Ids;
-using WorkflowAutomation.WorkflowExecution.Domain.ValueObjects;
 
 namespace WorkflowAutomation.WorkflowExecution.Domain.Events;
 
-public sealed record ActionStartedEvent(
+public sealed record StepFailedEvent(
     WorkflowExecutionId WorkflowExecutionId,
+    StepId StepId,
     StepExecutionId StepExecutionId,
-    StepInput Input,
+    string Error,
     DateTime OccurredOn) : IDomainEvent
 {
-    public ActionStartedEvent(
+    public StepFailedEvent(
         WorkflowExecutionId workflowExecutionId,
+        StepId stepId,
         StepExecutionId stepExecutionId,
-        StepInput input)
-        : this(workflowExecutionId, stepExecutionId, input, DateTime.UtcNow) { }
+        string error)
+        : this(workflowExecutionId, stepId, stepExecutionId, error, DateTime.UtcNow) { }
 }
