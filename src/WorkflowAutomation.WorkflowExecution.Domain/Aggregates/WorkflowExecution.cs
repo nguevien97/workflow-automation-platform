@@ -5,6 +5,7 @@ using WorkflowAutomation.WorkflowExecution.Domain.Entities;
 using WorkflowAutomation.WorkflowExecution.Domain.Enums;
 using WorkflowAutomation.WorkflowExecution.Domain.Events;
 using WorkflowAutomation.WorkflowExecution.Domain.Ids;
+using WorkflowAutomation.WorkflowExecution.Domain.Services;
 using WorkflowAutomation.WorkflowExecution.Domain.ValueObjects;
 
 namespace WorkflowAutomation.WorkflowExecution.Domain.Aggregates;
@@ -12,11 +13,12 @@ namespace WorkflowAutomation.WorkflowExecution.Domain.Aggregates;
 public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 {
     private readonly List<StepExecution> _stepExecutions = [];
+
     public WorkflowVersionId WorkflowVersionId { get; }
-    private readonly Dictionary<string, object>? ParentContext;
-    private readonly StepOutput InitialTriggerOutput;
-    private readonly StepId EntryStepId;
     public WorkflowDefinitionSnapshot Definition { get; }
+    public StepId EntryStepId { get; }
+    public StepOutput InitialTriggerOutput { get; }
+    public ParentExecutionContext? ParentContext { get; }
     public WorkflowExecutionStatus Status { get; private set; }
     public IReadOnlyList<StepExecution> StepExecutions => _stepExecutions.AsReadOnly();
     public DateTime CreatedAt { get; private init; }
@@ -24,43 +26,49 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 
     public WorkflowExecution(
         WorkflowExecutionId id,
+        WorkflowVersionId workflowVersionId,
         WorkflowDefinitionSnapshot definition,
-        StepOutput initialTriggerOutput,
         StepId entryStepId,
-        Dictionary<string, object>? parentContext = null)
+        StepOutput initialTriggerOutput,
+        ParentExecutionContext? parentContext = null)
         : base(id)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(initialTriggerOutput);
+
+        WorkflowVersionId = workflowVersionId;
         Definition = definition;
-        InitialTriggerOutput = initialTriggerOutput;
         EntryStepId = entryStepId;
+        InitialTriggerOutput = initialTriggerOutput;
         ParentContext = parentContext;
         Status = WorkflowExecutionStatus.Pending;
         CreatedAt = DateTime.UtcNow;
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
-    public void Start()
+
+    public void Start(IConditionEvaluator conditionEvaluator, ITemplateResolver templateResolver)
     {
+        ArgumentNullException.ThrowIfNull(conditionEvaluator);
+        ArgumentNullException.ThrowIfNull(templateResolver);
         GuardStatus(WorkflowExecutionStatus.Pending, nameof(Start));
 
         Status = WorkflowExecutionStatus.Running;
 
         var firstStep = Definition.GetStepInfo(EntryStepId);
-        if (ParentContext is null)
-        {
-            if (firstStep.StepType != StepType.Trigger)
-                throw new InvalidOperationException(
-                    "The first step of the workflow must be a Trigger when there is no parent context.");
-        }
-        
-        ExecuteStep(firstStep.StepId);
+        if (ParentContext is null && firstStep.StepType != StepType.Trigger)
+            throw new InvalidOperationException(
+                "The first step must be a Trigger when there is no parent context.");
+
+        ExecuteStep(firstStep.StepId, conditionEvaluator, templateResolver);
         AddDomainEvent(new WorkflowStartedEvent(Id));
     }
 
-    
-    public void RecordStepCompleted(StepExecutionId stepExecutionId, StepOutput output)
+    public void RecordStepCompleted(
+        StepExecutionId stepExecutionId,
+        StepOutput output,
+        IConditionEvaluator conditionEvaluator,
+        ITemplateResolver templateResolver)
     {
         ArgumentNullException.ThrowIfNull(output);
         GuardStatus(WorkflowExecutionStatus.Running, nameof(RecordStepCompleted));
@@ -68,27 +76,24 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         var step = GetStepExecutionOrThrow(stepExecutionId);
         step.Complete(output);
 
-        AdvanceOrComplete(step.Id);
+        AddDomainEvent(new StepCompletedEvent(Id, step.StepId, stepExecutionId));
+        AdvanceOrComplete(step.Id, conditionEvaluator, templateResolver);
     }
 
-    /// <summary>
-    /// Records that a step was skipped (FailureStrategy.Skip).
-    /// Treats the step as having completed for graph-advance purposes.
-    /// </summary>
-    public void RecordStepSkipped(StepExecutionId stepExecutionId)
+    public void RecordStepSkipped(
+        StepExecutionId stepExecutionId,
+        IConditionEvaluator conditionEvaluator,
+        ITemplateResolver templateResolver)
     {
         GuardStatus(WorkflowExecutionStatus.Running, nameof(RecordStepSkipped));
 
         var step = GetStepExecutionOrThrow(stepExecutionId);
         step.Skip();
 
-        AdvanceOrComplete(step.Id);
+        AddDomainEvent(new StepSkippedEvent(Id, step.StepId, stepExecutionId));
+        AdvanceOrComplete(step.Id, conditionEvaluator, templateResolver);
     }
 
-    /// <summary>
-    /// Records that a step has definitively failed (stop strategy, retries
-    /// exhausted). Transitions the workflow to Failed.
-    /// </summary>
     public void RecordStepFailed(StepExecutionId stepExecutionId, string error)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(error);
@@ -97,9 +102,8 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         var step = GetStepExecutionOrThrow(stepExecutionId);
         step.Fail(error);
 
-        Status = WorkflowExecutionStatus.Failed;
-        CompletedAt = DateTime.UtcNow;
-        AddDomainEvent(new WorkflowFailedEvent(Id, error));
+        AddDomainEvent(new StepFailedEvent(Id, step.StepId, stepExecutionId, error));
+        FailWorkflow($"Step '{Definition.GetStepInfo(step.StepId).Name}' failed: {error}");
     }
 
     public void Cancel()
@@ -116,107 +120,306 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 
     public void Suspend()
     {
-        if (Status != WorkflowExecutionStatus.Running)
-            throw new InvalidOperationException(
-                $"Cannot suspend a workflow execution in '{Status}' status.");
-
+        GuardStatus(WorkflowExecutionStatus.Running, nameof(Suspend));
         Status = WorkflowExecutionStatus.Suspended;
     }
 
     public void Resume()
     {
-        if (Status != WorkflowExecutionStatus.Suspended)
-            throw new InvalidOperationException(
-                $"Cannot resume a workflow execution in '{Status}' status.");
-
+        GuardStatus(WorkflowExecutionStatus.Suspended, nameof(Resume));
         Status = WorkflowExecutionStatus.Running;
     }
 
     // ── Queries ──────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Returns all currently running step executions.
-    /// There can be more than one when condition branches execute in parallel.
-    /// </summary>
     public IReadOnlyList<StepExecution> GetRunningSteps() =>
-        _stepExecutions.Where(s => s.Status == ExecutionStatus.Running).ToList().AsReadOnly();
+        _stepExecutions.Where(s => s.Status == ExecutionStatus.Running)
+            .ToList().AsReadOnly();
 
-    /// <summary>Returns all pending step executions awaiting <see cref="ExecuteStep"/>.</summary>
     public IReadOnlyList<StepExecution> GetPendingSteps() =>
-        _stepExecutions.Where(s => s.Status == ExecutionStatus.Pending).ToList().AsReadOnly();
+        _stepExecutions.Where(s => s.Status == ExecutionStatus.Pending)
+            .ToList().AsReadOnly();
 
     // ── Graph advance ────────────────────────────────────────────────────────
-    private void ExecuteStep(StepId stepId)
+
+    private void ExecuteStep(
+        StepId stepId,
+        IConditionEvaluator conditionEvaluator,
+        ITemplateResolver templateResolver)
     {
         if (_stepExecutions.Any(s => s.StepId == stepId))
             throw new InvalidOperationException(
-                $"A step execution for step ID '{stepId}' already exists. Duplicate step IDs are not allowed in the same workflow execution.");
-        
-        var input = GetStepExecutionInput(stepId);
+                $"Step execution for step '{stepId}' already exists.");
+
         var stepInfo = Definition.GetStepInfo(stepId);
         var step = new StepExecution(StepExecutionId.New(), stepId);
         _stepExecutions.Add(step);
-        step.Start(input);
-        
+
         switch (stepInfo.StepType)
         {
             case StepType.Trigger:
+                step.Start(input: null);
                 step.Complete(InitialTriggerOutput);
-                ExecuteStep(stepInfo.NextStepId!.Value);
+                ExecuteStep(stepInfo.NextStepId!.Value, conditionEvaluator, templateResolver);
                 break;
+
             case StepType.Action:
-                // fire ActionTriggered domain event, which will be handled by ActionExecution aggregate
+                var actionInfo = (ActionStepInfo)stepInfo;
+                var resolvedInput = ResolveInputMappings(actionInfo.InputMappings, templateResolver);
+                step.Start(resolvedInput);
+                // Action step is now Running — an external handler will
+                // call RecordStepCompleted/Skipped/Failed when done.
+                AddDomainEvent(new ActionExecutionRequestedEvent(
+                    Id, step.Id, step.StepId,
+                    actionInfo.IntegrationId, actionInfo.CommandName,
+                    resolvedInput, actionInfo.FailureStrategy, actionInfo.MaxRetries));
                 break;
+
             case StepType.Condition:
-                var conditionStepInfo = (ConditionStepInfo)stepInfo;
-                var matchingRule = conditionStepInfo.Rules.FirstOrDefault(r => EvaluateCondition(r));
-                var nextStepId = matchingRule != default
-                    ? matchingRule.TargetStepId
-                    : conditionStepInfo.FallbackStepId;
-                step.Complete(null);
-                if (nextStepId.HasValue)
+                var condInfo = (ConditionStepInfo)stepInfo;
+                step.Start(input: null);
+                var outputsByName = BuildStepOutputsByName();
+                StepId? selectedBranchId = null;
+
+                foreach (var rule in condInfo.Rules)
                 {
-                    ExecuteStep(nextStepId.Value);
+                    var resolvedExpr = templateResolver.Resolve(rule.Expression, outputsByName);
+                    if (conditionEvaluator.Evaluate(resolvedExpr))
+                    {
+                        selectedBranchId = rule.TargetStepId;
+                        break;
+                    }
+                }
+
+                selectedBranchId ??= condInfo.FallbackStepId;
+
+                step.Complete(output: null);
+
+                if (selectedBranchId.HasValue)
+                {
+                    AddDomainEvent(new ConditionBranchSelectedEvent(
+                        Id, step.StepId, selectedBranchId.Value));
+                    ExecuteStep(selectedBranchId.Value, conditionEvaluator, templateResolver);
                 }
                 else
                 {
-                    // no next step means the workflow fails, which follows the requirements
-                    // fire WorkflowFailedEvent with appropriate error message
-                    FailWorkflow($"No condition rules matched and no fallback step defined for condition step '{stepInfo.StepId}'.");
+                    FailWorkflow(
+                        $"No condition rules matched and no fallback defined for step '{stepInfo.Name}'.");
                 }
                 break;
-            case StepType.Loop:
-                var loopStepInfo = (LoopStepInfo)stepInfo;
-                // evaluate input and fire WorkflowExecutionSpawned here
-                break;
+
             case StepType.Parallel:
-                var parallelStepInfo = (ParallelStepInfo)stepInfo;
-                // traverse branches until first action step
-                foreach (var branchEntryStepId in parallelStepInfo.BranchEntryStepIds)
+                var parallelInfo = (ParallelStepInfo)stepInfo;
+                step.Start(input: null);
+                // Don't complete — stays Running until all branches merge.
+                AddDomainEvent(new ParallelBranchesForkedEvent(
+                    Id, step.StepId, parallelInfo.BranchEntryStepIds.ToList()));
+                foreach (var branchEntryId in parallelInfo.BranchEntryStepIds)
                 {
-                    ExecuteStep(branchEntryStepId);
+                    ExecuteStep(branchEntryId, conditionEvaluator, templateResolver);
                 }
                 break;
+
+            case StepType.Loop:
+                var loopInfo = (LoopStepInfo)stepInfo;
+                var loopOutputsByName = BuildStepOutputsByName();
+                var resolvedSourceExpr = templateResolver.Resolve(
+                    loopInfo.SourceArrayExpression, loopOutputsByName);
+                step.Start(input: null);
+                // Loop step stays Running — ActionExecution aggregate
+                // manages iteration spawning and result aggregation.
+                // Raise event with everything the handler needs.
+                AddDomainEvent(new LoopExecutionStartedEvent(
+                    Id, step.Id, step.StepId,
+                    loopInfo.LoopEntryStepId,
+                    resolvedSourceExpr,
+                    loopInfo.ConcurrencyMode,
+                    loopInfo.MaxConcurrency,
+                    loopInfo.IterationFailureStrategy,
+                    BuildUpstreamOutputsForParentContext()));
+                break;
+
             default:
                 throw new InvalidOperationException(
-                    $"Unsupported step type '{stepInfo.StepType}' for execution.");
+                    $"Unsupported step type '{stepInfo.StepType}'.");
         }
     }
-    
-    private void AdvanceOrComplete(StepExecutionId completedStepExecutionId)
+
+    private void AdvanceOrComplete(
+        StepExecutionId completedStepExecutionId,
+        IConditionEvaluator conditionEvaluator,
+        ITemplateResolver templateResolver)
     {
         var completedStep = GetStepExecutionOrThrow(completedStepExecutionId);
         var completedStepInfo = Definition.GetStepInfo(completedStep.StepId);
 
+        // If the step has a NextStepId, advance to it.
         if (completedStepInfo.NextStepId.HasValue)
         {
-            ExecuteStep(completedStepInfo.NextStepId.Value);
+            ExecuteStep(completedStepInfo.NextStepId.Value, conditionEvaluator, templateResolver);
             return;
         }
 
-        // if there is no next step, it is either end of the workflow or end of a parallel branch.
-        // TODO: find the parallel step that faned out this branch (if any) and check if all its branches are completed. If there is no such a parallel step, check if all steps are completed. If so, complete the workflow.
+        // No NextStepId — either end of a parallel branch, end of a
+        // condition branch, or end of the entire workflow.
+
+        // Check if this step is inside a parallel branch.
+        var owningParallel = Definition.FindOwningParallelStep(completedStep.StepId);
+        if (owningParallel is not null)
+        {
+            var completedStepIds = _stepExecutions
+                .Where(s => s.Status is ExecutionStatus.Completed or ExecutionStatus.Skipped)
+                .Select(s => s.StepId)
+                .ToHashSet();
+
+            if (Definition.AreAllParallelBranchesCompleted(owningParallel, completedStepIds))
+            {
+                // Mark the parallel step itself as completed.
+                var parallelExec = _stepExecutions.First(s => s.StepId == owningParallel.StepId);
+                parallelExec.Complete(output: null);
+
+                AddDomainEvent(new ParallelBranchesMergedEvent(Id, owningParallel.StepId));
+
+                // Advance from the parallel step.
+                AdvanceOrComplete(parallelExec.Id, conditionEvaluator, templateResolver);
+            }
+            // else: other branches still running — do nothing, wait.
+            return;
+        }
+
+        // Check if this step is the last step of a condition branch.
+        // Condition branches have NextStepId = null; the condition step's
+        // own NextStepId is the continuation. Find the owning condition.
+        var owningCondition = FindOwningConditionStep(completedStep.StepId);
+        if (owningCondition is not null)
+        {
+            // Condition step was already completed when the branch was selected.
+            // Advance from the condition step's NextStepId.
+            if (owningCondition.NextStepId.HasValue)
+            {
+                ExecuteStep(owningCondition.NextStepId.Value, conditionEvaluator, templateResolver);
+            }
+            else
+            {
+                // Condition itself has no NextStepId — it might be nested.
+                var condExec = _stepExecutions.First(s => s.StepId == owningCondition.StepId);
+                AdvanceOrComplete(condExec.Id, conditionEvaluator, templateResolver);
+            }
+            return;
+        }
+
+        // Not inside a parallel or condition branch — this is the end of
+        // the workflow.
+        CompleteWorkflow();
     }
+
+    // ── Template resolution ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Builds a dictionary of step name → output value for all completed
+    /// steps, used for template resolution. "trigger" maps to the initial
+    /// trigger output. Parent context outputs are included if present.
+    /// </summary>
+    private Dictionary<string, object> BuildStepOutputsByName()
+    {
+        var outputs = new Dictionary<string, object>();
+
+        // Add parent context outputs (for child/loop executions).
+        if (ParentContext is not null)
+        {
+            foreach (var kvp in ParentContext.UpstreamStepOutputs)
+                outputs[kvp.Key] = kvp.Value;
+        }
+
+        // Add completed step outputs from this execution.
+        foreach (var stepExec in _stepExecutions)
+        {
+            if (stepExec.Output is null) continue;
+            var info = Definition.GetStepInfo(stepExec.StepId);
+
+            // For child executions, the trigger output is the iteration item.
+            // For root executions, it's the real trigger output.
+            // Both are accessible as "trigger".
+            if (info.StepType == StepType.Trigger)
+                outputs["trigger"] = stepExec.Output;
+            else
+                outputs[info.Name] = stepExec.Output;
+        }
+
+        return outputs;
+    }
+
+    private StepInput ResolveInputMappings(
+        IReadOnlyDictionary<string, string> inputMappings,
+        ITemplateResolver templateResolver)
+    {
+        var outputsByName = BuildStepOutputsByName();
+        var resolved = new Dictionary<string, object>();
+        foreach (var kvp in inputMappings)
+        {
+            resolved[kvp.Key] = templateResolver.Resolve(kvp.Value, outputsByName);
+        }
+        return new StepInput(resolved);
+    }
+
+    /// <summary>
+    /// Builds the upstream step outputs dictionary that will be passed
+    /// into child executions via <see cref="ParentExecutionContext"/>.
+    /// </summary>
+    private Dictionary<string, StepOutput> BuildUpstreamOutputsForParentContext()
+    {
+        var outputs = new Dictionary<string, StepOutput>();
+        foreach (var stepExec in _stepExecutions)
+        {
+            if (stepExec.Output is null) continue;
+            var info = Definition.GetStepInfo(stepExec.StepId);
+            if (info.StepType == StepType.Trigger)
+                outputs["trigger"] = stepExec.Output;
+            else
+                outputs[info.Name] = stepExec.Output;
+        }
+        return outputs;
+    }
+
+    // ── Graph queries ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Finds the condition step that owns the branch containing the given step.
+    /// Returns null if the step is not inside a condition branch.
+    /// </summary>
+    private ConditionStepInfo? FindOwningConditionStep(StepId stepId)
+    {
+        foreach (var stepExec in _stepExecutions)
+        {
+            var info = Definition.GetStepInfo(stepExec.StepId);
+            if (info is not ConditionStepInfo condInfo) continue;
+
+            foreach (var rule in condInfo.Rules)
+            {
+                if (BranchContainsStep(rule.TargetStepId, stepId))
+                    return condInfo;
+            }
+            if (condInfo.FallbackStepId.HasValue
+                && BranchContainsStep(condInfo.FallbackStepId.Value, stepId))
+                return condInfo;
+        }
+        return null;
+    }
+
+    private bool BranchContainsStep(StepId entryStepId, StepId targetStepId)
+    {
+        StepId? currentId = entryStepId;
+        while (currentId.HasValue)
+        {
+            if (currentId.Value == targetStepId)
+                return true;
+            var current = Definition.GetStepInfo(currentId.Value);
+            currentId = current.NextStepId;
+        }
+        return false;
+    }
+
+    // ── Terminal transitions ─────────────────────────────────────────────────
 
     private void CompleteWorkflow()
     {
@@ -234,47 +437,15 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private StepExecution GetStepExecutionOrThrow(StepExecutionId stepExecutionId) =>
-        _stepExecutions.Find(s => s.Id == stepExecutionId)
+    private StepExecution GetStepExecutionOrThrow(StepExecutionId id) =>
+        _stepExecutions.Find(s => s.Id == id)
         ?? throw new InvalidOperationException(
-            $"Step execution '{stepExecutionId}' not found in this workflow execution.");
-
-    private StepInput? GetStepExecutionInput(StepId stepId)
-    {
-        var stepInfo = Definition.GetStepInfo(stepId);
-        if (stepInfo.StepType == StepType.Trigger || stepInfo.StepType == StepType.Parallel || stepInfo.StepType == StepType.Condition)
-        {
-            return null;
-        }
-
-        if (stepInfo.StepType == StepType.Action)
-        {
-            var actionStepInfo = (ActionStepInfo)stepInfo;
-            // resolve input from previous step's output
-            return null; // placeholder for actual input resolution logic
-        }
-
-        if (stepInfo.StepType == StepType.Loop)
-        {
-            var loopStepInfo = (LoopStepInfo)stepInfo;
-            // resolve input from loop collection or previous step's output
-            return null; // placeholder for actual input resolution logic
-        }
-
-        throw new InvalidOperationException(
-            $"Unsupported step type '{stepInfo.StepType}' for input resolution.");
-    }
-
-    private bool EvaluateCondition(ConditionRuleInfo rule)
-    {
-        // placeholder for actual condition evaluation logic
-        return false;
-    }
+            $"Step execution '{id}' not found.");
 
     private void GuardStatus(WorkflowExecutionStatus expected, string operation)
     {
         if (Status != expected)
             throw new InvalidOperationException(
-                $"Cannot {operation} a workflow execution in '{Status}' status. Expected '{expected}'.");
+                $"Cannot {operation} — status is '{Status}', expected '{expected}'.");
     }
 }

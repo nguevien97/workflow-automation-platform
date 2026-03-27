@@ -12,29 +12,31 @@ namespace WorkflowAutomation.WorkflowExecution.Domain.ValueObjects;
 public abstract class StepDefinitionInfo : ValueObject
 {
     public StepId StepId { get; }
+    public string Name { get; }
     public StepType StepType { get; }
     public StepId? NextStepId { get; }
 
     protected StepDefinitionInfo(
         StepId stepId,
+        string name,
         StepType stepType,
         StepId? nextStepId = null)
     {
         if (stepId == default)
             throw new ArgumentException("Step ID must not be empty.", nameof(stepId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         StepId = stepId;
+        Name = name;
         StepType = stepType;
         NextStepId = nextStepId;
     }
 
-    // ── ValueObject equality ─────────────────────────────────────────────────
-
     protected override IEnumerable<object?> GetEqualityComponents()
     {
         yield return StepId;
+        yield return Name;
         yield return StepType;
         yield return NextStepId;
     }
 }
-

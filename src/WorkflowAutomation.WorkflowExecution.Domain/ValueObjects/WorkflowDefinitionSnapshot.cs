@@ -8,24 +8,28 @@ namespace WorkflowAutomation.WorkflowExecution.Domain.ValueObjects;
 /// Frozen copy of a workflow version's structure embedded inside
 /// <see cref="Aggregates.WorkflowExecution"/> so running executions are
 /// completely isolated from subsequent workflow edits.
+/// All steps (top-level, branch, parallel branch, loop body) are stored
+/// in a single flat list; graph structure is defined by ID references.
 /// </summary>
 public sealed class WorkflowDefinitionSnapshot : ValueObject
 {
-    // Top-level step order (does NOT include steps nested inside condition branches).
     private readonly List<StepDefinitionInfo> _allSteps;
-    private readonly Dictionary<StepId, StepDefinitionInfo> AllStepsById;
-       
+    private readonly Dictionary<StepId, StepDefinitionInfo> _stepsById;
+    private readonly Dictionary<string, StepDefinitionInfo> _stepsByName;
 
-    public WorkflowDefinitionSnapshot(
-        List<StepDefinitionInfo> allSteps)
+    public WorkflowDefinitionSnapshot(List<StepDefinitionInfo> allSteps)
     {
         ArgumentNullException.ThrowIfNull(allSteps);
+        if (allSteps.Count == 0)
+            throw new ArgumentException("Snapshot must contain at least one step.", nameof(allSteps));
 
         _allSteps = allSteps;
-        AllStepsById = [];
+        _stepsById = [];
+        _stepsByName = [];
         foreach (var step in _allSteps)
         {
-            AllStepsById[step.StepId] = step;
+            _stepsById[step.StepId] = step;
+            _stepsByName[step.Name] = step;
         }
     }
 
@@ -33,11 +37,112 @@ public sealed class WorkflowDefinitionSnapshot : ValueObject
 
     public StepDefinitionInfo GetStepInfo(StepId stepId)
     {
-        if (AllStepsById.TryGetValue(stepId, out var info))
-        {
+        if (_stepsById.TryGetValue(stepId, out var info))
             return info;
+        throw new KeyNotFoundException($"Step ID '{stepId}' not found in workflow snapshot.");
+    }
+
+    public StepDefinitionInfo? GetStepInfoByName(string stepName)
+    {
+        return _stepsByName.TryGetValue(stepName, out var info) ? info : null;
+    }
+
+    /// <summary>
+    /// Walks the graph to find the <see cref="ParallelStepInfo"/> that owns
+    /// the branch containing <paramref name="branchStepId"/>.
+    /// Returns null if the step is not inside a parallel branch (i.e. it's
+    /// the last step of the top-level chain or a condition branch at top level).
+    /// </summary>
+    public ParallelStepInfo? FindOwningParallelStep(StepId branchStepId)
+    {
+        var parallelSteps = _allSteps.OfType<ParallelStepInfo>();
+        foreach (var parallel in parallelSteps)
+        {
+            foreach (var entryId in parallel.BranchEntryStepIds)
+            {
+                if (BranchContainsStep(entryId, branchStepId))
+                    return parallel;
+            }
         }
-        throw new KeyNotFoundException($"Step ID {stepId} not found in workflow snapshot.");
+        return null;
+    }
+
+    /// <summary>
+    /// Checks whether all branches of a parallel step have a completed
+    /// terminal step (a step with NextStepId == null) in the given set
+    /// of completed step IDs.
+    /// </summary>
+    public bool AreAllParallelBranchesCompleted(
+        ParallelStepInfo parallelStep,
+        HashSet<StepId> completedStepIds)
+    {
+        foreach (var entryId in parallelStep.BranchEntryStepIds)
+        {
+            var terminalStepId = FindBranchTerminalStep(entryId);
+            if (terminalStepId is null || !completedStepIds.Contains(terminalStepId.Value))
+                return false;
+        }
+        return true;
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Walks a branch chain from entryStepId following NextStepId links
+    /// to check if the branch contains the target step.
+    /// </summary>
+    private bool BranchContainsStep(StepId entryStepId, StepId targetStepId)
+    {
+        StepId? currentId = entryStepId;
+        while (currentId.HasValue)
+        {
+            if (currentId.Value == targetStepId)
+                return true;
+
+            var current = GetStepInfo(currentId.Value);
+
+            // If current is a parallel step, check nested branches
+            if (current is ParallelStepInfo nestedParallel)
+            {
+                foreach (var nestedEntryId in nestedParallel.BranchEntryStepIds)
+                {
+                    if (BranchContainsStep(nestedEntryId, targetStepId))
+                        return true;
+                }
+            }
+
+            // If current is a condition step, check condition branches
+            if (current is ConditionStepInfo condition)
+            {
+                foreach (var rule in condition.Rules)
+                {
+                    if (BranchContainsStep(rule.TargetStepId, targetStepId))
+                        return true;
+                }
+                if (condition.FallbackStepId.HasValue
+                    && BranchContainsStep(condition.FallbackStepId.Value, targetStepId))
+                    return true;
+            }
+
+            currentId = current.NextStepId;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Follows a branch chain to find the terminal step (NextStepId == null).
+    /// </summary>
+    private StepId? FindBranchTerminalStep(StepId entryStepId)
+    {
+        StepId? currentId = entryStepId;
+        StepId? lastId = null;
+        while (currentId.HasValue)
+        {
+            lastId = currentId;
+            var current = GetStepInfo(currentId.Value);
+            currentId = current.NextStepId;
+        }
+        return lastId;
     }
 
     // ── ValueObject equality ─────────────────────────────────────────────────
