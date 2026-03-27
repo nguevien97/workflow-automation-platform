@@ -31,13 +31,22 @@ public sealed class StepExecution : Entity<StepExecutionId>
         StartedAt = DateTime.UtcNow;
     }
 
-    public void Complete(StepOutput? output)
+    public void CompleteWithOutput(StepOutput output)
     {
         ArgumentNullException.ThrowIfNull(output);
-        GuardStatus(ExecutionStatus.Running, nameof(Complete));
+        GuardStatus(ExecutionStatus.Running, nameof(CompleteWithOutput));
 
         Status = ExecutionStatus.Completed;
         Output = output;
+        CompletedAt = DateTime.UtcNow;
+    }
+
+    public void CompleteWithoutOutput()
+    {
+        GuardStatus(ExecutionStatus.Running, nameof(CompleteWithoutOutput));
+
+        Status = ExecutionStatus.Completed;
+        Output = null;
         CompletedAt = DateTime.UtcNow;
     }
 

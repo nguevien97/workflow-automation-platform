@@ -74,7 +74,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         GuardStatus(WorkflowExecutionStatus.Running, nameof(RecordStepCompleted));
 
         var step = GetStepExecutionOrThrow(stepExecutionId);
-        step.Complete(output);
+        step.CompleteWithOutput(output);
 
         AddDomainEvent(new StepCompletedEvent(Id, step.StepId, stepExecutionId));
         AdvanceOrComplete(step.Id, conditionEvaluator, templateResolver);
@@ -159,7 +159,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         {
             case StepType.Trigger:
                 step.Start(input: null);
-                step.Complete(InitialTriggerOutput);
+                step.CompleteWithOutput(InitialTriggerOutput);
                 ExecuteStep(stepInfo.NextStepId!.Value, conditionEvaluator, templateResolver);
                 break;
 
@@ -193,7 +193,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 
                 selectedBranchId ??= condInfo.FallbackStepId;
 
-                step.Complete(output: null);
+                step.CompleteWithoutOutput();
 
                 if (selectedBranchId.HasValue)
                 {
@@ -276,7 +276,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
             {
                 // Mark the parallel step itself as completed.
                 var parallelExec = _stepExecutions.First(s => s.StepId == owningParallel.StepId);
-                parallelExec.Complete(output: null);
+                parallelExec.CompleteWithoutOutput();
 
                 AddDomainEvent(new ParallelBranchesMergedEvent(Id, owningParallel.StepId));
 
