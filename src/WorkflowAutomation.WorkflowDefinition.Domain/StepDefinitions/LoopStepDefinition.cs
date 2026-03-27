@@ -1,6 +1,5 @@
 using WorkflowAutomation.SharedKernel.Domain.Enums;
 using WorkflowAutomation.SharedKernel.Domain.Ids;
-using WorkflowAutomation.WorkflowDefinition.Domain.Enums;
 using WorkflowAutomation.WorkflowDefinition.Domain.ValueObjects;
 
 namespace WorkflowAutomation.WorkflowDefinition.Domain.StepDefinitions;
@@ -29,7 +28,8 @@ public sealed class LoopStepDefinition : StepDefinition
         : base(id, StepType.Loop, name, nextStepId)
     {
         ArgumentNullException.ThrowIfNull(sourceArray);
-
+        if (loopEntryStepId == default)
+            throw new ArgumentException("Loop entry step ID must not be empty.", nameof(loopEntryStepId));
         if (concurrencyMode == ConcurrencyMode.Parallel && maxConcurrency.HasValue)
             ArgumentOutOfRangeException.ThrowIfLessThan(maxConcurrency.Value, 1);
 

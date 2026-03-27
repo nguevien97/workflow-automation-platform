@@ -22,17 +22,16 @@ public sealed class StepExecution : Entity<StepExecutionId>
         Status = ExecutionStatus.Pending;
     }
 
-    public void Start(StepInput input)
+    public void Start(StepInput? input)
     {
-        ArgumentNullException.ThrowIfNull(input);
         GuardStatus(ExecutionStatus.Pending, nameof(Start));
-
         Status = ExecutionStatus.Running;
+
         Input = input;
         StartedAt = DateTime.UtcNow;
     }
 
-    public void Complete(StepOutput output)
+    public void Complete(StepOutput? output)
     {
         ArgumentNullException.ThrowIfNull(output);
         GuardStatus(ExecutionStatus.Running, nameof(Complete));

@@ -1,4 +1,4 @@
-namespace WorkflowAutomation.WorkflowDefinition.Domain.Enums;
+namespace WorkflowAutomation.SharedKernel.Domain.Enums;
 
 public enum ConcurrencyMode
 {

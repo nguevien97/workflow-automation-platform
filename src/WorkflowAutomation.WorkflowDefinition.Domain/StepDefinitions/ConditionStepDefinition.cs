@@ -18,6 +18,8 @@ public sealed class ConditionStepDefinition : StepDefinition
         : base(id, StepType.Condition, name, nextStepId)
     {
         ArgumentNullException.ThrowIfNull(rules);
+        if (rules.Count == 0)
+            throw new ArgumentException("At least one condition rule must be provided.", nameof(rules));
 
         Rules = rules;
         FallbackStepId = fallbackStepId;
