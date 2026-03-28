@@ -1,5 +1,5 @@
 using WorkflowAutomation.SharedKernel.Domain;
-using WorkflowAutomation.SharedKernel.Domain.Enums;
+using WorkflowAutomation.WorkflowLanguage.Domain.Enums;
 using WorkflowAutomation.SharedKernel.Domain.Ids;
 
 namespace WorkflowAutomation.WorkflowExecution.Domain.ValueObjects;

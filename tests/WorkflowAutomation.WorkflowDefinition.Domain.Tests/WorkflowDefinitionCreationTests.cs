@@ -1,4 +1,4 @@
-using WorkflowAutomation.SharedKernel.Domain.Enums;
+using WorkflowAutomation.WorkflowLanguage.Domain.Enums;
 using WorkflowAutomation.SharedKernel.Domain.Ids;
 using WorkflowAutomation.WorkflowDefinition.Domain.Aggregates;
 using WorkflowAutomation.WorkflowDefinition.Domain.Enums;

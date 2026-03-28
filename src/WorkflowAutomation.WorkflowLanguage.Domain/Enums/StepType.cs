@@ -1,4 +1,4 @@
-namespace WorkflowAutomation.SharedKernel.Domain.Enums;
+namespace WorkflowAutomation.WorkflowLanguage.Domain.Enums;
 
 public enum StepType
 {
