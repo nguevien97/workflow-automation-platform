@@ -60,7 +60,7 @@ public sealed class WorkflowDefinitionSnapshot : ValueObject
         {
             foreach (var entryId in parallel.BranchEntryStepIds)
             {
-                if (BranchContainsStep(entryId, branchStepId))
+                if (LocalPathContainsStep(entryId, branchStepId))
                     return parallel;
             }
         }
@@ -79,12 +79,12 @@ public sealed class WorkflowDefinitionSnapshot : ValueObject
         {
             foreach (var rule in condition.Rules)
             {
-                if (BranchContainsStep(rule.TargetStepId, branchStepId))
+                if (LocalPathContainsStep(rule.TargetStepId, branchStepId))
                     return condition;
             }
 
             if (condition.FallbackStepId.HasValue
-                && BranchContainsStep(condition.FallbackStepId.Value, branchStepId))
+                && LocalPathContainsStep(condition.FallbackStepId.Value, branchStepId))
             {
                 return condition;
             }
@@ -114,10 +114,13 @@ public sealed class WorkflowDefinitionSnapshot : ValueObject
     // ── Private helpers ──────────────────────────────────────────────────────
 
     /// <summary>
-    /// Walks a branch chain from entryStepId following NextStepId links
-    /// to check if the branch contains the target step.
+    /// Walks a local path from <paramref name="entryStepId"/> following
+    /// only <c>NextStepId</c> links. Does <b>not</b> recurse into nested
+    /// scopes (parallel branches, condition branches, loop bodies).
+    /// This ensures each owner-finding method returns the <b>direct</b>
+    /// (innermost) structural parent rather than a transitive ancestor.
     /// </summary>
-    private bool BranchContainsStep(StepId entryStepId, StepId targetStepId)
+    private bool LocalPathContainsStep(StepId entryStepId, StepId targetStepId)
     {
         StepId? currentId = entryStepId;
         while (currentId.HasValue)
@@ -126,30 +129,6 @@ public sealed class WorkflowDefinitionSnapshot : ValueObject
                 return true;
 
             var current = GetStepInfo(currentId.Value);
-
-            // If current is a parallel step, check nested branches
-            if (current is ParallelStepInfo nestedParallel)
-            {
-                foreach (var nestedEntryId in nestedParallel.BranchEntryStepIds)
-                {
-                    if (BranchContainsStep(nestedEntryId, targetStepId))
-                        return true;
-                }
-            }
-
-            // If current is a condition step, check condition branches
-            if (current is ConditionStepInfo condition)
-            {
-                foreach (var rule in condition.Rules)
-                {
-                    if (BranchContainsStep(rule.TargetStepId, targetStepId))
-                        return true;
-                }
-                if (condition.FallbackStepId.HasValue
-                    && BranchContainsStep(condition.FallbackStepId.Value, targetStepId))
-                    return true;
-            }
-
             currentId = current.NextStepId;
         }
         return false;

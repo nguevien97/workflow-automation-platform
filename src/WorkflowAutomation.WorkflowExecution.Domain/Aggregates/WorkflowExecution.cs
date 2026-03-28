@@ -184,8 +184,6 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 
                 selectedBranchId ??= condInfo.FallbackStepId;
 
-                step.CompleteWithoutOutput();
-
                 if (selectedBranchId.HasValue)
                 {
                     AddDomainEvent(new ConditionBranchSelectedEvent(
@@ -194,8 +192,11 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
                 }
                 else
                 {
-                    FailWorkflow(
-                        $"No condition rules matched and no fallback defined for step '{stepInfo.Name}'.");
+                    var error =
+                        $"No condition rules matched and no fallback defined for step '{stepInfo.Name}'.";
+                    step.Fail(error);
+                    AddDomainEvent(new StepFailedEvent(Id, step.StepId, step.Id, error));
+                    FailWorkflow(error);
                 }
                 break;
 
@@ -292,18 +293,12 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         var owningCondition = Definition.FindOwningConditionStep(completedStep.StepId);
         if (owningCondition is not null)
         {
-            // Condition step was already completed when the branch was selected.
-            // Advance from the condition step's NextStepId.
-            if (owningCondition.NextStepId.HasValue)
-            {
-                ExecuteStep(owningCondition.NextStepId.Value);
-            }
-            else
-            {
-                // Condition itself has no NextStepId — it might be nested.
-                var condExec = _stepExecutions.First(s => s.StepId == owningCondition.StepId);
-                AdvanceOrComplete(condExec.Id);
-            }
+            // Complete the condition step now that its branch has finished.
+            var condExec = _stepExecutions.First(s => s.StepId == owningCondition.StepId);
+            condExec.CompleteWithoutOutput();
+
+            // Advance from the condition step.
+            AdvanceOrComplete(condExec.Id);
             return;
         }
 

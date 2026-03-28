@@ -88,8 +88,10 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
-        var branchExecution = Assert.Single(execution.GetRunningSteps());
-        Assert.Equal(branch, branchExecution.StepId);
+        var runningSteps = execution.GetRunningSteps();
+        Assert.Equal(2, runningSteps.Count); // Condition stays Running + branch action
+        Assert.Contains(runningSteps, s => s.StepId == route);
+        var branchExecution = runningSteps.Single(s => s.StepId == branch);
         Assert.Contains(execution.DomainEvents, e => e is ConditionBranchSelectedEvent branchSelected && branchSelected.SelectedBranchEntryStepId == branch);
 
         execution.RecordStepCompleted(branchExecution.Id, Output(("branchOut", "done")));
@@ -100,7 +102,40 @@ public partial class WorkflowExecutionOwnerBarrierTests
     }
 
     [Fact]
-    public void Snapshot_FindsOwningConditionStep_ForNestedBranchStep()
+    public void ConditionWithoutMatchingRuleOrFallback_FailsConditionStepAndWorkflow()
+    {
+        var trigger = Id();
+        var route = Id();
+        var branch = Id();
+
+        var execution = BuildExecution(
+            Snapshot(
+                Trigger("T", trigger, route),
+                Condition("Route", route, [Rule("'go' == 'stop'", branch)]),
+                Action("Branch", branch)),
+            trigger,
+            Output(("seed", "alpha")));
+
+        execution.Start();
+
+        Assert.Equal(WorkflowExecutionStatus.Failed, execution.Status);
+        Assert.Empty(execution.GetRunningSteps());
+
+        var conditionExecution = Assert.Single(execution.StepExecutions, step => step.StepId == route);
+        Assert.Equal(ExecutionStatus.Failed, conditionExecution.Status);
+        Assert.DoesNotContain(execution.StepExecutions, step => step.StepId == branch);
+        Assert.Contains(execution.DomainEvents,
+            e => e is StepFailedEvent failed
+                && failed.StepId == route
+                && failed.Error.Contains("no condition rules matched", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(execution.DomainEvents,
+            e => e is WorkflowFailedEvent failed
+                && failed.Error.Contains("no condition rules matched", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(execution.DomainEvents, e => e is ConditionBranchSelectedEvent);
+    }
+
+    [Fact]
+    public void Snapshot_FindsDirectOwner_ForNestedBranchStep()
     {
         var trigger = Id();
         var outerCondition = Id();
@@ -121,10 +156,16 @@ public partial class WorkflowExecutionOwnerBarrierTests
             Action("Fallback", fallback),
             Action("AfterCondition", afterCondition));
 
-        var owner = snapshot.FindOwningConditionStep(innerBranch);
+        // InnerBranch's direct owner is the Parallel, not the outer Condition.
+        var parallelOwner = snapshot.FindOwningParallelStep(innerBranch);
+        Assert.NotNull(parallelOwner);
+        Assert.Equal(parallel, parallelOwner!.StepId);
+        Assert.Null(snapshot.FindOwningConditionStep(innerBranch));
 
-        Assert.NotNull(owner);
-        Assert.Equal(outerCondition, owner!.StepId);
+        // The Parallel's direct owner is the outer Condition.
+        var conditionOwner = snapshot.FindOwningConditionStep(parallel);
+        Assert.NotNull(conditionOwner);
+        Assert.Equal(outerCondition, conditionOwner!.StepId);
     }
 
     [Fact]
@@ -402,6 +443,6 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         Assert.Contains(execution.DomainEvents,
             e => e is ParallelBranchesMergedEvent merged && merged.ParallelStepId == parallel);
-        Assert.Single(execution.GetRunningSteps().Where(s => s.StepId == after));
+        Assert.Single(execution.GetRunningSteps(), s => s.StepId == after);
     }
 }
