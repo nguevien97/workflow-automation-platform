@@ -1,3 +1,4 @@
+using WorkflowAutomation.WorkflowExecution.Domain.Enums;
 using WorkflowAutomation.WorkflowExecution.Domain.Events;
 
 namespace WorkflowAutomation.WorkflowExecution.Domain.Tests;
@@ -54,7 +55,31 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var loopStarted = Assert.Single(execution.DomainEvents.OfType<LoopExecutionStartedEvent>());
-        var items = Assert.IsType<int[]>(loopStarted.ResolvedSource);
-        Assert.Equal(new[] { 1, 2, 3 }, items);
+        Assert.Equal(3, loopStarted.SourceItems.Count);
+        Assert.Equal(new object?[] { 1, 2, 3 }, loopStarted.SourceItems.Items);
+    }
+
+    [Fact]
+    public void LoopSource_MustResolveToEnumerableCollection()
+    {
+        var trigger = Id();
+        var loop = Id();
+        var body = Id();
+
+        var execution = BuildExecution(
+            Snapshot(
+                Trigger("T", trigger, loop),
+                Loop("EachItem", loop, "{{trigger.items}}", body),
+                Action("Body", body)),
+            trigger,
+            Output(("items", "not-a-collection")));
+
+        execution.Start();
+
+        Assert.Equal(WorkflowExecutionStatus.Failed, execution.Status);
+        var loopExecution = Assert.Single(execution.StepExecutions, step => step.StepId == loop);
+        Assert.Equal(ExecutionStatus.Failed, loopExecution.Status);
+        Assert.Contains(execution.DomainEvents, e => e is WorkflowFailedEvent failed && failed.Error.Contains("enumerable collection", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(execution.DomainEvents, e => e is LoopExecutionStartedEvent);
     }
 }

@@ -216,18 +216,29 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
                 var loopOutputsByName = BuildStepOutputsByName();
                 var resolvedSource = TemplateResolver.ResolveValue(
                     loopInfo.SourceArrayExpression, loopOutputsByName);
-                step.Start(input: null);
+                try
+                {
+                    var sourceItems = LoopSourceItems.FromResolvedValue(resolvedSource);
+                    step.Start(input: null);
                 // Loop step stays Running — ActionExecution aggregate
                 // manages iteration spawning and result aggregation.
                 // Raise event with everything the handler needs.
-                AddDomainEvent(new LoopExecutionStartedEvent(
-                    Id, step.Id, step.StepId,
-                    loopInfo.LoopEntryStepId,
-                    resolvedSource,
-                    loopInfo.ConcurrencyMode,
-                    loopInfo.MaxConcurrency,
-                    loopInfo.IterationFailureStrategy,
-                    BuildUpstreamOutputsForParentContext()));
+                    AddDomainEvent(new LoopExecutionStartedEvent(
+                        Id, step.Id, step.StepId,
+                        loopInfo.LoopEntryStepId,
+                        sourceItems,
+                        loopInfo.ConcurrencyMode,
+                        loopInfo.MaxConcurrency,
+                        loopInfo.IterationFailureStrategy,
+                        BuildUpstreamOutputsForParentContext()));
+                }
+                catch (InvalidOperationException ex)
+                {
+                    step.Start(input: null);
+                    step.Fail(ex.Message);
+                    AddDomainEvent(new StepFailedEvent(Id, step.StepId, step.Id, ex.Message));
+                    FailWorkflow($"Step '{stepInfo.Name}' failed: {ex.Message}");
+                }
                 break;
 
             default:
