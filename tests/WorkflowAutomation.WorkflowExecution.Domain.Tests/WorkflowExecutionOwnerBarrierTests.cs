@@ -242,4 +242,166 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.Equal(after, afterExecution.StepId);
         Assert.Contains(execution.DomainEvents, e => e is ParallelBranchesMergedEvent merged && merged.ParallelStepId == parallel);
     }
+
+    /// <summary>
+    /// Condition at the end of a parallel branch. The condition dispatches
+    /// an action step, but the parallel merge must NOT happen until that
+    /// action completes. After the workflow finishes, no steps should be
+    /// left Running.
+    ///
+    ///   Parallel
+    ///     ├─ Branch A: ActionLeft (null)
+    ///     └─ Branch B: Condition (null)          ← terminal of branch B
+    ///                      └─ rule → ActionInBranch (null)
+    ///   After
+    /// </summary>
+    [Fact]
+    public void ConditionInParallelBranch_ParallelMustWaitForConditionBranchToComplete()
+    {
+        var trigger = Id();
+        var parallel = Id();
+        var actionLeft = Id();
+        var condition = Id();
+        var actionInBranch = Id();
+        var after = Id();
+
+        var execution = BuildExecution(
+            Snapshot(
+                Trigger("T", trigger, parallel),
+                Parallel("Fork", parallel, [actionLeft, condition], nextStepId: after),
+                Action("ActionLeft", actionLeft),
+                Condition("Route", condition, [Rule("'go' == 'go'", actionInBranch)]),
+                Action("ActionInBranch", actionInBranch),
+                Action("After", after)),
+            trigger);
+
+        execution.Start();
+
+        // ActionLeft and ActionInBranch should both be running.
+        // The condition dispatched ActionInBranch via the selected rule.
+        var actionLeftExec = execution.StepExecutions.Single(s => s.StepId == actionLeft);
+        var actionInBranchExec = execution.StepExecutions.Single(s => s.StepId == actionInBranch);
+        Assert.Equal(ExecutionStatus.Running, actionLeftExec.Status);
+        Assert.Equal(ExecutionStatus.Running, actionInBranchExec.Status);
+
+        // Complete ActionLeft — parallel must NOT merge yet because
+        // ActionInBranch (inside the condition's branch) is still running.
+        execution.RecordStepCompleted(actionLeftExec.Id, Output(("left", "done")));
+
+        Assert.DoesNotContain(execution.DomainEvents,
+            e => e is ParallelBranchesMergedEvent);
+        Assert.DoesNotContain(execution.StepExecutions,
+            s => s.StepId == after);
+        Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
+
+        // Now complete ActionInBranch — parallel should merge and advance.
+        execution.RecordStepCompleted(actionInBranchExec.Id, Output(("branch", "done")));
+
+        Assert.Contains(execution.DomainEvents,
+            e => e is ParallelBranchesMergedEvent merged && merged.ParallelStepId == parallel);
+
+        var afterExec = execution.GetRunningSteps().Single(s => s.StepId == after);
+        Assert.Equal(after, afterExec.StepId);
+    }
+
+    /// <summary>
+    /// When the workflow completes, there must be zero steps still in
+    /// Running status. This scenario uses a condition inside a parallel
+    /// branch to expose orphaned running steps.
+    ///
+    ///   Parallel
+    ///     ├─ Branch A: ActionLeft (null)
+    ///     └─ Branch B: Condition (null)
+    ///                      └─ rule → ActionInBranch (null)
+    /// </summary>
+    [Fact]
+    public void NoRunningStepsAfterWorkflowCompleted_ConditionInParallelBranch()
+    {
+        var trigger = Id();
+        var parallel = Id();
+        var actionLeft = Id();
+        var condition = Id();
+        var actionInBranch = Id();
+
+        var execution = BuildExecution(
+            Snapshot(
+                Trigger("T", trigger, parallel),
+                Parallel("Fork", parallel, [actionLeft, condition]),
+                Action("ActionLeft", actionLeft),
+                Condition("Route", condition, [Rule("'go' == 'go'", actionInBranch)]),
+                Action("ActionInBranch", actionInBranch)),
+            trigger);
+
+        execution.Start();
+
+        var actionLeftExec = execution.StepExecutions.Single(s => s.StepId == actionLeft);
+        var actionInBranchExec = execution.StepExecutions.Single(s => s.StepId == actionInBranch);
+
+        execution.RecordStepCompleted(actionLeftExec.Id, Output(("left", "done")));
+        execution.RecordStepCompleted(actionInBranchExec.Id, Output(("branch", "done")));
+
+        Assert.Equal(WorkflowExecutionStatus.Completed, execution.Status);
+
+        // The invariant: no running steps after completion.
+        var runningSteps = execution.StepExecutions
+            .Where(s => s.Status == ExecutionStatus.Running)
+            .Select(s => s.StepId)
+            .ToList();
+        Assert.Empty(runningSteps);
+    }
+
+    /// <summary>
+    /// Condition with a multi-step branch inside a parallel branch.
+    /// The parallel must wait for the entire chain, not just the condition.
+    ///
+    ///   Parallel
+    ///     ├─ Branch A: ActionLeft (null)
+    ///     └─ Branch B: Condition (null)
+    ///                      └─ rule → Action1 → Action2 (null)
+    /// </summary>
+    [Fact]
+    public void ConditionWithMultiStepBranch_InParallel_WaitsForEntireChain()
+    {
+        var trigger = Id();
+        var parallel = Id();
+        var actionLeft = Id();
+        var condition = Id();
+        var action1 = Id();
+        var action2 = Id();
+        var after = Id();
+
+        var execution = BuildExecution(
+            Snapshot(
+                Trigger("T", trigger, parallel),
+                Parallel("Fork", parallel, [actionLeft, condition], nextStepId: after),
+                Action("ActionLeft", actionLeft),
+                Condition("Route", condition, [Rule("'go' == 'go'", action1)]),
+                Action("Action1", action1, nextStepId: action2),
+                Action("Action2", action2),
+                Action("After", after)),
+            trigger);
+
+        execution.Start();
+
+        var actionLeftExec = execution.StepExecutions.Single(s => s.StepId == actionLeft);
+        var action1Exec = execution.StepExecutions.Single(s => s.StepId == action1);
+
+        // Complete left branch and first step of condition branch.
+        execution.RecordStepCompleted(actionLeftExec.Id, Output(("left", "done")));
+        execution.RecordStepCompleted(action1Exec.Id, Output(("a1", "done")));
+
+        // Parallel must NOT merge yet — Action2 is still running.
+        Assert.DoesNotContain(execution.DomainEvents,
+            e => e is ParallelBranchesMergedEvent);
+        Assert.DoesNotContain(execution.StepExecutions,
+            s => s.StepId == after);
+
+        // Complete the chain.
+        var action2Exec = execution.GetRunningSteps().Single(s => s.StepId == action2);
+        execution.RecordStepCompleted(action2Exec.Id, Output(("a2", "done")));
+
+        Assert.Contains(execution.DomainEvents,
+            e => e is ParallelBranchesMergedEvent merged && merged.ParallelStepId == parallel);
+        Assert.Single(execution.GetRunningSteps().Where(s => s.StepId == after));
+    }
 }
