@@ -278,7 +278,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         // Check if this step is the last step of a condition branch.
         // Condition branches have NextStepId = null; the condition step's
         // own NextStepId is the continuation. Find the owning condition.
-        var owningCondition = FindOwningConditionStep(completedStep.StepId);
+        var owningCondition = Definition.FindOwningConditionStep(completedStep.StepId);
         if (owningCondition is not null)
         {
             // Condition step was already completed when the branch was selected.
@@ -368,42 +368,6 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
     }
 
     // ── Graph queries ────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Finds the condition step that owns the branch containing the given step.
-    /// Returns null if the step is not inside a condition branch.
-    /// </summary>
-    private ConditionStepInfo? FindOwningConditionStep(StepId stepId)
-    {
-        foreach (var stepExec in _stepExecutions)
-        {
-            var info = Definition.GetStepInfo(stepExec.StepId);
-            if (info is not ConditionStepInfo condInfo) continue;
-
-            foreach (var rule in condInfo.Rules)
-            {
-                if (BranchContainsStep(rule.TargetStepId, stepId))
-                    return condInfo;
-            }
-            if (condInfo.FallbackStepId.HasValue
-                && BranchContainsStep(condInfo.FallbackStepId.Value, stepId))
-                return condInfo;
-        }
-        return null;
-    }
-
-    private bool BranchContainsStep(StepId entryStepId, StepId targetStepId)
-    {
-        StepId? currentId = entryStepId;
-        while (currentId.HasValue)
-        {
-            if (currentId.Value == targetStepId)
-                return true;
-            var current = Definition.GetStepInfo(currentId.Value);
-            currentId = current.NextStepId;
-        }
-        return false;
-    }
 
     // ── Terminal transitions ─────────────────────────────────────────────────
 

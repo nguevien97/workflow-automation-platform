@@ -68,6 +68,32 @@ public sealed class WorkflowDefinitionSnapshot : ValueObject
     }
 
     /// <summary>
+    /// Walks the graph to find the <see cref="ConditionStepInfo"/> that owns
+    /// the branch containing <paramref name="branchStepId"/>.
+    /// Returns null if the step is not inside a condition branch.
+    /// </summary>
+    public ConditionStepInfo? FindOwningConditionStep(StepId branchStepId)
+    {
+        var conditionSteps = _allSteps.OfType<ConditionStepInfo>();
+        foreach (var condition in conditionSteps)
+        {
+            foreach (var rule in condition.Rules)
+            {
+                if (BranchContainsStep(rule.TargetStepId, branchStepId))
+                    return condition;
+            }
+
+            if (condition.FallbackStepId.HasValue
+                && BranchContainsStep(condition.FallbackStepId.Value, branchStepId))
+            {
+                return condition;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Checks whether all branches of a parallel step have a completed
     /// terminal step (a step with NextStepId == null) in the given set
     /// of completed step IDs.

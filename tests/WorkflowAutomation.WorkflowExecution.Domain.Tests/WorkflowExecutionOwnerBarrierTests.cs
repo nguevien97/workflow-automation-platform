@@ -100,6 +100,34 @@ public partial class WorkflowExecutionOwnerBarrierTests
     }
 
     [Fact]
+    public void Snapshot_FindsOwningConditionStep_ForNestedBranchStep()
+    {
+        var trigger = Id();
+        var outerCondition = Id();
+        var parallel = Id();
+        var innerBranch = Id();
+        var siblingBranch = Id();
+        var afterParallel = Id();
+        var fallback = Id();
+        var afterCondition = Id();
+
+        var snapshot = Snapshot(
+            Trigger("T", trigger, outerCondition),
+            Condition("Route", outerCondition, [Rule("'go' == 'go'", parallel)], nextStepId: afterCondition, fallbackStepId: fallback),
+            Parallel("Fork", parallel, [innerBranch, siblingBranch], nextStepId: afterParallel),
+            Action("InnerBranch", innerBranch),
+            Action("SiblingBranch", siblingBranch),
+            Action("AfterParallel", afterParallel),
+            Action("Fallback", fallback),
+            Action("AfterCondition", afterCondition));
+
+        var owner = snapshot.FindOwningConditionStep(innerBranch);
+
+        Assert.NotNull(owner);
+        Assert.Equal(outerCondition, owner!.StepId);
+    }
+
+    [Fact]
     public void ParallelOwner_WaitsForAllBranchesBeforeAdvancing()
     {
         var trigger = Id();
