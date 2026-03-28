@@ -60,6 +60,19 @@ public sealed class StepExecution : Entity<StepExecutionId>
         CompletedAt = DateTime.UtcNow;
     }
 
+    public void Cancel()
+    {
+        if (Status is ExecutionStatus.Completed
+            or ExecutionStatus.Failed
+            or ExecutionStatus.Cancelled
+            or ExecutionStatus.Skipped)
+            throw new InvalidOperationException(
+                $"Cannot cancel a step execution in '{Status}' status.");
+
+        Status = ExecutionStatus.Cancelled;
+        CompletedAt = DateTime.UtcNow;
+    }
+
     public void Skip()
     {
         GuardStatus(ExecutionStatus.Running, nameof(Skip));

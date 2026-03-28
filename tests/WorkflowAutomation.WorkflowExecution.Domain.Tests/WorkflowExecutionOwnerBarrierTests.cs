@@ -391,6 +391,60 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.Empty(runningSteps);
     }
 
+    [Fact]
+    public void NoRunningStepsAfterWorkflowFailed_ActionFailureInParallelBranch()
+    {
+        var trigger = Id();
+        var parallel = Id();
+        var left = Id();
+        var right = Id();
+
+        var execution = BuildExecution(
+            Snapshot(
+                Trigger("T", trigger, parallel),
+                Parallel("Fork", parallel, [left, right]),
+                Action("Left", left),
+                Action("Right", right)),
+            trigger);
+
+        execution.Start();
+
+        var leftExecution = Assert.Single(execution.GetRunningSteps(), step => step.StepId == left);
+        execution.RecordStepFailed(leftExecution.Id, "boom");
+
+        Assert.Equal(WorkflowExecutionStatus.Failed, execution.Status);
+
+        var runningSteps = execution.StepExecutions
+            .Where(s => s.Status == ExecutionStatus.Running)
+            .Select(s => s.StepId)
+            .ToList();
+        Assert.Empty(runningSteps);
+    }
+
+    [Fact]
+    public void NoRunningStepsAfterWorkflowCancelled()
+    {
+        var trigger = Id();
+        var action = Id();
+
+        var execution = BuildExecution(
+            Snapshot(
+                Trigger("T", trigger, action),
+                Action("Send", action)),
+            trigger);
+
+        execution.Start();
+        execution.Cancel();
+
+        Assert.Equal(WorkflowExecutionStatus.Cancelled, execution.Status);
+
+        var runningSteps = execution.StepExecutions
+            .Where(s => s.Status == ExecutionStatus.Running)
+            .Select(s => s.StepId)
+            .ToList();
+        Assert.Empty(runningSteps);
+    }
+
     /// <summary>
     /// Condition with a multi-step branch inside a parallel branch.
     /// The parallel must wait for the entire chain, not just the condition.

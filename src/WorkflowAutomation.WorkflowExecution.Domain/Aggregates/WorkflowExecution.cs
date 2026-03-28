@@ -108,6 +108,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
             throw new InvalidOperationException(
                 $"Cannot cancel a workflow execution in '{Status}' status.");
 
+        CancelActiveStepExecutions();
         Status = WorkflowExecutionStatus.Cancelled;
         CompletedAt = DateTime.UtcNow;
     }
@@ -386,6 +387,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 
     private void FailWorkflow(string error)
     {
+        CancelActiveStepExecutions();
         Status = WorkflowExecutionStatus.Failed;
         CompletedAt = DateTime.UtcNow;
         AddDomainEvent(new WorkflowFailedEvent(Id, error));
@@ -397,6 +399,15 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         _stepExecutions.Find(s => s.Id == id)
         ?? throw new InvalidOperationException(
             $"Step execution '{id}' not found.");
+
+    private void CancelActiveStepExecutions()
+    {
+        foreach (var stepExecution in _stepExecutions.Where(step =>
+                     step.Status is ExecutionStatus.Pending or ExecutionStatus.Running))
+        {
+            stepExecution.Cancel();
+        }
+    }
 
     private void GuardStatus(WorkflowExecutionStatus expected, string operation)
     {
