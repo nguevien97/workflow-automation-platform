@@ -1,8 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\WorkflowAutomation.SharedKernel.Domain\WorkflowAutomation.SharedKernel.Domain.csproj" />
-    <ProjectReference Include="..\WorkflowAutomation.WorkflowLanguage.Domain\WorkflowAutomation.WorkflowLanguage.Domain.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

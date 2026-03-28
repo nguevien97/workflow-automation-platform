@@ -5,8 +5,9 @@ using WorkflowAutomation.WorkflowExecution.Domain.Entities;
 using WorkflowAutomation.WorkflowExecution.Domain.Enums;
 using WorkflowAutomation.WorkflowExecution.Domain.Events;
 using WorkflowAutomation.WorkflowExecution.Domain.Ids;
-using WorkflowAutomation.WorkflowExecution.Domain.Services;
 using WorkflowAutomation.WorkflowExecution.Domain.ValueObjects;
+using WorkflowAutomation.WorkflowLanguage.Domain.Conditions;
+using WorkflowAutomation.WorkflowLanguage.Domain.Templates;
 
 namespace WorkflowAutomation.WorkflowExecution.Domain.Aggregates;
 
@@ -47,10 +48,8 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
-    public void Start(IConditionEvaluator conditionEvaluator, ITemplateResolver templateResolver)
+    public void Start()
     {
-        ArgumentNullException.ThrowIfNull(conditionEvaluator);
-        ArgumentNullException.ThrowIfNull(templateResolver);
         GuardStatus(WorkflowExecutionStatus.Pending, nameof(Start));
 
         Status = WorkflowExecutionStatus.Running;
@@ -60,15 +59,13 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
             throw new InvalidOperationException(
                 "The first step must be a Trigger when there is no parent context.");
 
-        ExecuteStep(firstStep.StepId, conditionEvaluator, templateResolver);
+        ExecuteStep(firstStep.StepId);
         AddDomainEvent(new WorkflowStartedEvent(Id));
     }
 
     public void RecordStepCompleted(
         StepExecutionId stepExecutionId,
-        StepOutput output,
-        IConditionEvaluator conditionEvaluator,
-        ITemplateResolver templateResolver)
+        StepOutput output)
     {
         ArgumentNullException.ThrowIfNull(output);
         GuardStatus(WorkflowExecutionStatus.Running, nameof(RecordStepCompleted));
@@ -77,13 +74,10 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         step.CompleteWithOutput(output);
 
         AddDomainEvent(new StepCompletedEvent(Id, step.StepId, stepExecutionId));
-        AdvanceOrComplete(step.Id, conditionEvaluator, templateResolver);
+        AdvanceOrComplete(step.Id);
     }
 
-    public void RecordStepSkipped(
-        StepExecutionId stepExecutionId,
-        IConditionEvaluator conditionEvaluator,
-        ITemplateResolver templateResolver)
+    public void RecordStepSkipped(StepExecutionId stepExecutionId)
     {
         GuardStatus(WorkflowExecutionStatus.Running, nameof(RecordStepSkipped));
 
@@ -91,7 +85,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         step.Skip();
 
         AddDomainEvent(new StepSkippedEvent(Id, step.StepId, stepExecutionId));
-        AdvanceOrComplete(step.Id, conditionEvaluator, templateResolver);
+        AdvanceOrComplete(step.Id);
     }
 
     public void RecordStepFailed(StepExecutionId stepExecutionId, string error)
@@ -142,10 +136,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 
     // ── Graph advance ────────────────────────────────────────────────────────
 
-    private void ExecuteStep(
-        StepId stepId,
-        IConditionEvaluator conditionEvaluator,
-        ITemplateResolver templateResolver)
+    private void ExecuteStep(StepId stepId)
     {
         if (_stepExecutions.Any(s => s.StepId == stepId))
             throw new InvalidOperationException(
@@ -160,12 +151,12 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
             case StepType.Trigger:
                 step.Start(input: null);
                 step.CompleteWithOutput(InitialTriggerOutput);
-                ExecuteStep(stepInfo.NextStepId!.Value, conditionEvaluator, templateResolver);
+                ExecuteStep(stepInfo.NextStepId!.Value);
                 break;
 
             case StepType.Action:
                 var actionInfo = (ActionStepInfo)stepInfo;
-                var resolvedInput = ResolveInputMappings(actionInfo.InputMappings, templateResolver);
+                var resolvedInput = ResolveInputMappings(actionInfo.InputMappings);
                 step.Start(resolvedInput);
                 // Action step is now Running — an external handler will
                 // call RecordStepCompleted/Skipped/Failed when done.
@@ -183,8 +174,8 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 
                 foreach (var rule in condInfo.Rules)
                 {
-                    var resolvedExpr = templateResolver.Resolve(rule.Expression, outputsByName);
-                    if (conditionEvaluator.Evaluate(resolvedExpr))
+                    var resolvedExpr = TemplateResolver.ResolveText(rule.Expression, outputsByName);
+                    if (ConditionEvaluator.Evaluate(resolvedExpr))
                     {
                         selectedBranchId = rule.TargetStepId;
                         break;
@@ -199,7 +190,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
                 {
                     AddDomainEvent(new ConditionBranchSelectedEvent(
                         Id, step.StepId, selectedBranchId.Value));
-                    ExecuteStep(selectedBranchId.Value, conditionEvaluator, templateResolver);
+                    ExecuteStep(selectedBranchId.Value);
                 }
                 else
                 {
@@ -216,14 +207,14 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
                     Id, step.StepId, parallelInfo.BranchEntryStepIds.ToList()));
                 foreach (var branchEntryId in parallelInfo.BranchEntryStepIds)
                 {
-                    ExecuteStep(branchEntryId, conditionEvaluator, templateResolver);
+                    ExecuteStep(branchEntryId);
                 }
                 break;
 
             case StepType.Loop:
                 var loopInfo = (LoopStepInfo)stepInfo;
                 var loopOutputsByName = BuildStepOutputsByName();
-                var resolvedSourceExpr = templateResolver.Resolve(
+                var resolvedSource = TemplateResolver.ResolveValue(
                     loopInfo.SourceArrayExpression, loopOutputsByName);
                 step.Start(input: null);
                 // Loop step stays Running — ActionExecution aggregate
@@ -232,7 +223,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
                 AddDomainEvent(new LoopExecutionStartedEvent(
                     Id, step.Id, step.StepId,
                     loopInfo.LoopEntryStepId,
-                    resolvedSourceExpr,
+                    resolvedSource,
                     loopInfo.ConcurrencyMode,
                     loopInfo.MaxConcurrency,
                     loopInfo.IterationFailureStrategy,
@@ -245,10 +236,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         }
     }
 
-    private void AdvanceOrComplete(
-        StepExecutionId completedStepExecutionId,
-        IConditionEvaluator conditionEvaluator,
-        ITemplateResolver templateResolver)
+    private void AdvanceOrComplete(StepExecutionId completedStepExecutionId)
     {
         var completedStep = GetStepExecutionOrThrow(completedStepExecutionId);
         var completedStepInfo = Definition.GetStepInfo(completedStep.StepId);
@@ -256,7 +244,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         // If the step has a NextStepId, advance to it.
         if (completedStepInfo.NextStepId.HasValue)
         {
-            ExecuteStep(completedStepInfo.NextStepId.Value, conditionEvaluator, templateResolver);
+            ExecuteStep(completedStepInfo.NextStepId.Value);
             return;
         }
 
@@ -281,7 +269,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
                 AddDomainEvent(new ParallelBranchesMergedEvent(Id, owningParallel.StepId));
 
                 // Advance from the parallel step.
-                AdvanceOrComplete(parallelExec.Id, conditionEvaluator, templateResolver);
+                AdvanceOrComplete(parallelExec.Id);
             }
             // else: other branches still running — do nothing, wait.
             return;
@@ -297,13 +285,13 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
             // Advance from the condition step's NextStepId.
             if (owningCondition.NextStepId.HasValue)
             {
-                ExecuteStep(owningCondition.NextStepId.Value, conditionEvaluator, templateResolver);
+                ExecuteStep(owningCondition.NextStepId.Value);
             }
             else
             {
                 // Condition itself has no NextStepId — it might be nested.
                 var condExec = _stepExecutions.First(s => s.StepId == owningCondition.StepId);
-                AdvanceOrComplete(condExec.Id, conditionEvaluator, templateResolver);
+                AdvanceOrComplete(condExec.Id);
             }
             return;
         }
@@ -320,15 +308,15 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
     /// steps, used for template resolution. "trigger" maps to the initial
     /// trigger output. Parent context outputs are included if present.
     /// </summary>
-    private Dictionary<string, object> BuildStepOutputsByName()
+    private Dictionary<string, IReadOnlyDictionary<string, object>> BuildStepOutputsByName()
     {
-        var outputs = new Dictionary<string, object>();
+        var outputs = new Dictionary<string, IReadOnlyDictionary<string, object>>();
 
         // Add parent context outputs (for child/loop executions).
         if (ParentContext is not null)
         {
             foreach (var kvp in ParentContext.UpstreamStepOutputs)
-                outputs[kvp.Key] = kvp.Value;
+                outputs[kvp.Key] = kvp.Value.Data;
         }
 
         // Add completed step outputs from this execution.
@@ -341,23 +329,21 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
             // For root executions, it's the real trigger output.
             // Both are accessible as "trigger".
             if (info.StepType == StepType.Trigger)
-                outputs["trigger"] = stepExec.Output;
+                outputs["trigger"] = stepExec.Output.Data;
             else
-                outputs[info.Name] = stepExec.Output;
+                outputs[info.Name] = stepExec.Output.Data;
         }
 
         return outputs;
     }
 
-    private StepInput ResolveInputMappings(
-        IReadOnlyDictionary<string, string> inputMappings,
-        ITemplateResolver templateResolver)
+    private StepInput ResolveInputMappings(IReadOnlyDictionary<string, string> inputMappings)
     {
         var outputsByName = BuildStepOutputsByName();
         var resolved = new Dictionary<string, object>();
         foreach (var kvp in inputMappings)
         {
-            resolved[kvp.Key] = templateResolver.Resolve(kvp.Value, outputsByName);
+            resolved[kvp.Key] = TemplateResolver.ResolveValue(kvp.Value, outputsByName);
         }
         return new StepInput(resolved);
     }

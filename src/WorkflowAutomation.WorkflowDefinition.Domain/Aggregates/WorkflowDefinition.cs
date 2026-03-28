@@ -1,11 +1,12 @@
 using WorkflowAutomation.WorkflowDefinition.Domain.ValueObjects;
-using System.Text.RegularExpressions;
 using WorkflowAutomation.SharedKernel.Domain;
 using WorkflowAutomation.SharedKernel.Domain.Enums;
 using WorkflowAutomation.SharedKernel.Domain.Ids;
 using WorkflowAutomation.WorkflowDefinition.Domain.Events;
 using WorkflowAutomation.WorkflowDefinition.Domain.Ids;
 using WorkflowAutomation.WorkflowDefinition.Domain.StepDefinitions;
+using WorkflowAutomation.WorkflowLanguage.Domain.Conditions;
+using WorkflowAutomation.WorkflowLanguage.Domain.Templates;
 
 namespace WorkflowAutomation.WorkflowDefinition.Domain.Aggregates;
 
@@ -293,30 +294,98 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
         void ValidateTemplatesInString(string text, HashSet<StepId> availableSteps, StepId stepId)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
-            var matches = Regex.Matches(text, @"\{\{([^.]+)\.([^}]+)\}\}");
-            foreach (Match match in matches)
+            foreach (var templateReference in TemplateResolver.FindReferences(text))
             {
-                var refStepName = match.Groups[1].Value;
-                var refFieldName = match.Groups[2].Value;
+                ResolveReferenceFieldType(
+                    templateReference.StepName,
+                    templateReference.FieldName,
+                    availableSteps,
+                    stepId,
+                    templateReference.RawText);
+            }
+        }
 
-                if (string.Equals(refStepName, "env", StringComparison.OrdinalIgnoreCase))
-                    continue;
+        string ResolveReferenceFieldType(
+            string refStepName,
+            string refFieldName,
+            HashSet<StepId> availableSteps,
+            StepId stepId,
+            string rawReference)
+        {
+            if (string.Equals(refStepName, "env", StringComparison.OrdinalIgnoreCase))
+                return "string";
 
-                var referencedStep = _steps.FirstOrDefault(s => s.Name == refStepName);
-                if (referencedStep == null)
-                    throw new InvalidOperationException($"Step '{stepId}' references unknown step '{refStepName}' in template '{match.Value}'.");
+            var referencedStep = _steps.FirstOrDefault(s => s.Name == refStepName);
+            if (referencedStep == null)
+            {
+                throw new InvalidOperationException(
+                    $"Step '{stepId}' references unknown step '{refStepName}' in template '{rawReference}'.");
+            }
 
-                if (!availableSteps.Contains(referencedStep.Id))
-                    throw new InvalidOperationException($"Step '{stepId}' references step '{refStepName}' before it is guaranteed to complete in template '{match.Value}'.");
+            if (!availableSteps.Contains(referencedStep.Id))
+            {
+                throw new InvalidOperationException(
+                    $"Step '{stepId}' references step '{refStepName}' before it is guaranteed to complete in template '{rawReference}'.");
+            }
 
-                // Get OutputSchema
-                StepOutputSchema? schema = null;
-                if (referencedStep is TriggerStepDefinition triggerStep) schema = triggerStep.OutputSchema;
-                else if (referencedStep is ActionStepDefinition actionStep) schema = actionStep.OutputSchema;
-                else if (referencedStep is LoopStepDefinition loopStep) schema = loopStep.OutputSchema;
+            var schema = GetOutputSchema(referencedStep);
+            if (schema is null || !schema.Fields.TryGetValue(refFieldName, out var fieldType))
+            {
+                throw new InvalidOperationException(
+                    $"Step '{stepId}' references non-existent field '{refFieldName}' on step '{refStepName}' in template '{rawReference}'.");
+            }
 
-                if (schema != null && !schema.Fields.ContainsKey(refFieldName))
-                    throw new InvalidOperationException($"Step '{stepId}' references non-existent field '{refFieldName}' on step '{refStepName}' in template '{match.Value}'.");
+            return fieldType;
+        }
+
+        static StepOutputSchema? GetOutputSchema(StepDefinition referencedStep)
+        {
+            return referencedStep switch
+            {
+                TriggerStepDefinition triggerStep => triggerStep.OutputSchema,
+                ActionStepDefinition actionStep => actionStep.OutputSchema,
+                LoopStepDefinition loopStep => loopStep.OutputSchema,
+                _ => null
+            };
+        }
+
+        static string CreateConditionSampleLiteral(string fieldType)
+        {
+            return fieldType.Trim().ToLowerInvariant() switch
+            {
+                "bool" or "boolean" => "true",
+                "byte" or "short" or "int" or "integer" or "long"
+                    or "float" or "double" or "decimal" or "number" => "1",
+                _ => "'sample'"
+            };
+        }
+
+        void ValidateConditionExpressionSyntax(
+            string expression,
+            HashSet<StepId> availableSteps,
+            StepId stepId)
+        {
+            var expressionSample = TemplateResolver.ReplaceReferences(expression, templateReference =>
+            {
+                var fieldType = ResolveReferenceFieldType(
+                    templateReference.StepName,
+                    templateReference.FieldName,
+                    availableSteps,
+                    stepId,
+                    templateReference.RawText);
+
+                return CreateConditionSampleLiteral(fieldType);
+            });
+
+            try
+            {
+                ConditionEvaluator.ValidateSyntax(expressionSample);
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new InvalidOperationException(
+                    $"Step '{stepId}' has invalid condition expression '{expression}': {ex.Message}",
+                    ex);
             }
         }
 
@@ -335,6 +404,7 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
                 foreach (var rule in conditionStep.Rules)
                 {
                     ValidateTemplatesInString(rule.Expression, availableSteps, step.Id);
+                    ValidateConditionExpressionSyntax(rule.Expression, availableSteps, step.Id);
                 }
             }
             else if (step is LoopStepDefinition loopStep)

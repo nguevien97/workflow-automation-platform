@@ -1735,5 +1735,32 @@ public class WorkflowDefinitionTests
         Assert.Contains("owner continuation", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Invalid_37_ConditionExpressionSyntax_ShouldThrow()
+    {
+        var trigger = Id();
+        var route = Id();
+        var yes = Id();
+
+        var steps = new List<StepDefinition>
+        {
+            Trigger("T", trigger, route, Schema(("flag", "string"))),
+            Condition("Route", route, [Rule("{{T.flag}} ==", yes)]),
+            Action("Yes", yes, Schema(("done", "string"))),
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(steps));
+        Assert.Contains("invalid condition expression", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Invalid_38_LoopSourceMustBeWholeTemplateReference_ShouldThrow()
+    {
+        var ex = Assert.Throws<ArgumentException>(
+            () => new TemplateReference("items: {{Fetch.rows}}"));
+
+        Assert.Contains("single workflow reference", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     #endregion
 }

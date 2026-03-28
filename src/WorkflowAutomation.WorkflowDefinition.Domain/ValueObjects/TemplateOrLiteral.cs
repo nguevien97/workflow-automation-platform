@@ -1,4 +1,5 @@
 using WorkflowAutomation.SharedKernel.Domain;
+using WorkflowAutomation.WorkflowLanguage.Domain.Templates;
 
 namespace WorkflowAutomation.WorkflowDefinition.Domain.ValueObjects;
 
@@ -15,7 +16,17 @@ public sealed class TemplateOrLiteral : ValueObject
         Value = value;
     }
 
-    public static TemplateOrLiteral Template(string value) => new(isTemplate: true, value);
+    public static TemplateOrLiteral Template(string value)
+    {
+        if (!TemplateResolver.ContainsReference(value))
+        {
+            throw new ArgumentException(
+                "Template values must contain at least one workflow reference like '{{StepName.fieldName}}'.",
+                nameof(value));
+        }
+
+        return new(isTemplate: true, value);
+    }
 
     public static TemplateOrLiteral Literal(string value) => new(isTemplate: false, value);
 
