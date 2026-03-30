@@ -206,6 +206,8 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
             StepId? forbiddenContinuationStepId = null)
         {
             var availableAfterPath = new HashSet<StepId>(guaranteedAvailable);
+            var localPathSteps = new HashSet<StepId>();
+            var lastWasReview = false;
             var currentStepId = startStepId;
 
             while (currentStepId.HasValue)
@@ -223,8 +225,30 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
                 {
                     case ActionStepDefinition actionStep:
                     {
+                        localPathSteps.Add(actionStep.Id);
                         availableAfterPath.Add(actionStep.Id);
+                        lastWasReview = false;
                         currentStepId = actionStep.NextStepId;
+                        break;
+                    }
+                    case ReviewStepDefinition reviewStep:
+                    {
+                        if (lastWasReview)
+                            throw new InvalidOperationException(
+                                $"Review step '{reviewStep.Name}' immediately follows another review step. At least one non-review step must separate consecutive review steps.");
+
+                        if (!localPathSteps.Contains(reviewStep.RejectionTargetStepId))
+                            throw new InvalidOperationException(
+                                $"Review step '{reviewStep.Name}' targets step '{GetStep(reviewStep.RejectionTargetStepId).Name}' which is not on the same local path.");
+
+                        var targetStep = GetStep(reviewStep.RejectionTargetStepId);
+                        if (targetStep is ActionStepDefinition { FailureStrategy: FailureStrategy.Skip })
+                            throw new InvalidOperationException(
+                                $"Review step '{reviewStep.Name}' targets action step '{targetStep.Name}' whose FailureStrategy is Skip. A review target must not be skippable.");
+
+                        localPathSteps.Add(reviewStep.Id);
+                        lastWasReview = true;
+                        currentStepId = reviewStep.NextStepId;
                         break;
                     }
                     case ConditionStepDefinition conditionStep:
@@ -245,6 +269,7 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
                                 conditionStep.NextStepId);
                         }
 
+                        lastWasReview = false;
                         currentStepId = conditionStep.NextStepId;
                         break;
                     }
@@ -262,6 +287,7 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
                         }
 
                         availableAfterPath = guaranteedAfterParallel;
+                        lastWasReview = false;
                         currentStepId = parallelStep.NextStepId;
                         break;
                     }
@@ -273,12 +299,14 @@ public sealed class WorkflowDefinition : AggregateRoot<WorkflowVersionId>
                             loopStep.NextStepId);
 
                         availableAfterPath.Add(loopStep.Id);
+                        lastWasReview = false;
                         currentStepId = loopStep.NextStepId;
                         break;
                     }
                     case TriggerStepDefinition nestedTrigger:
                     {
                         availableAfterPath.Add(nestedTrigger.Id);
+                        lastWasReview = false;
                         currentStepId = nestedTrigger.NextStepId;
                         break;
                     }

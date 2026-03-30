@@ -33,6 +33,8 @@ public sealed class WorkflowDefinitionSnapshot : ValueObject
         }
     }
 
+    public IReadOnlyDictionary<StepId, StepDefinitionInfo> AllSteps => _stepsById;
+
     // ── Navigation ───────────────────────────────────────────────────────────
 
     public StepDefinitionInfo GetStepInfo(StepId stepId)
@@ -120,7 +122,7 @@ public sealed class WorkflowDefinitionSnapshot : ValueObject
     /// This ensures each owner-finding method returns the <b>direct</b>
     /// (innermost) structural parent rather than a transitive ancestor.
     /// </summary>
-    private bool LocalPathContainsStep(StepId entryStepId, StepId targetStepId)
+    public bool LocalPathContainsStep(StepId entryStepId, StepId targetStepId)
     {
         StepId? currentId = entryStepId;
         while (currentId.HasValue)
@@ -132,6 +134,23 @@ public sealed class WorkflowDefinitionSnapshot : ValueObject
             currentId = current.NextStepId;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Returns the ordered list of step IDs on the local <c>NextStepId</c>
+    /// chain starting from <paramref name="entryStepId"/>.
+    /// </summary>
+    public List<StepId> GetLocalPath(StepId entryStepId)
+    {
+        var path = new List<StepId>();
+        StepId? currentId = entryStepId;
+        while (currentId.HasValue)
+        {
+            path.Add(currentId.Value);
+            var current = GetStepInfo(currentId.Value);
+            currentId = current.NextStepId;
+        }
+        return path;
     }
 
     /// <summary>
