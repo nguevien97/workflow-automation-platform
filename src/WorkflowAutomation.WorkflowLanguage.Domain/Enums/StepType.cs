@@ -7,4 +7,5 @@ public enum StepType
     Condition,
     Parallel,
     Loop,
+    Review,
 }

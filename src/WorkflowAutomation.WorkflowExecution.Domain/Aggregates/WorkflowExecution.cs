@@ -100,6 +100,16 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         FailWorkflow($"Step '{Definition.GetStepInfo(step.StepId).Name}' failed: {error}");
     }
 
+    public void ApproveReviewStep(StepExecutionId stepExecutionId)
+    {
+        throw new NotImplementedException();
+    }
+
+    public void RejectReviewStep(StepExecutionId stepExecutionId, string reason)
+    {
+        throw new NotImplementedException();
+    }
+
     public void Cancel()
     {
         if (Status is WorkflowExecutionStatus.Completed
