@@ -29,7 +29,7 @@ Extends `StepDefinition` with `StepType.Review`.
 
 ### Validation Rules
 
-Three rules enforced during `WorkflowDefinition` construction:
+Four rules enforced during `WorkflowDefinition` construction:
 
 1. **Reachable** — Already covered by the existing `ValidateGraphShape()` cycle/reachability check. No new code needed.
 
@@ -38,6 +38,8 @@ Three rules enforced during `WorkflowDefinition` construction:
    Implementation: `ValidateLocalPath` tracks a separate `localPathSteps` set (in addition to the existing `availableAfterPath`). `ValidateReviewTarget` checks against `localPathSteps`.
 
 3. **No immediate consecutive review steps** — A review step's `NextStepId` must not point directly to another review step. At least one non-review step must separate them. However, multiple review steps on the same local path with intervening steps (e.g., `Action → Review A → Action → Review B`) are valid. A `lastWasReview` flag in `ValidateLocalPath` enforces this.
+
+4. **Target step cannot be skippable** — A review step cannot target an `ActionStepDefinition` whose `FailureStrategy` is `Skip`. Rejection means the target work must be re-done successfully; allowing the target to skip would undermine the meaning of the review gate.
 
 ### `StepType` Enum Change
 
@@ -83,10 +85,14 @@ When execution reaches a review step:
 5. Snapshot invalidated step executions into `RejectionRecord` (preserving `Input`, `Output`).
 6. Add record to `_rejectionHistory` and remove invalidated step executions.
 7. **Mark superseded records:** For any other review step whose prior `RejectionRecord` entries fall within the invalidation range, set their `SupersededByReviewStepId` to the current review step's ID.
-8. **Check max rejections** (count *non-superseded* records where `ReviewStepId` matches). If exceeded, call `FailWorkflow`. Otherwise, re-execute from target step.
+8. **Check max rejections** (count *non-superseded* records where `ReviewStepId` matches). If this newly recorded rejection causes the active count to reach `MaxRejections`, fail the current `WorkflowExecution`. Otherwise, re-execute from target step and keep the workflow `Running`.
 9. Emit `ReviewStepRejectedEvent(WorkflowExecutionId, ReviewStepId, TargetStepId, Reason)`.
 
 > **Important:** The max-rejections check must happen *after* recording the rejection in history. Checking before recording causes an off-by-one error (the count is always one behind).
+
+> **Important:** A normal rejection is a local rewind, not a terminal workflow transition. The current `WorkflowExecution` only fails when this rejection causes the active count for that review step to reach `MaxRejections`.
+
+> **Important:** The rejection target is always mandatory rework. A review step must not target an action step whose `FailureStrategy` is `Skip`.
 
 ### `RejectionRecord` (Value Object)
 
@@ -125,6 +131,8 @@ Local path: ... → [Target] → X → Y → [ReviewStep] → ...
 If any step in the invalidation range owns a nested scope (e.g., a Condition or Parallel step), all steps inside that scope are also invalidated. This uses a recursive `CollectScopeSteps` helper.
 
 After invalidation, `ExecuteStep(targetStepId)` re-creates fresh step executions starting from the target.
+
+Steps outside the invalidation range are untouched. In particular, a rejection inside one parallel branch does not invalidate sibling branches, and a rejection inside one loop iteration does not invalidate sibling iterations.
 
 ---
 
@@ -182,6 +190,13 @@ A loop body shares a single `StepId` for the review step definition across all i
 
 Each loop iteration runs as its own `WorkflowExecution` with a distinct `WorkflowExecutionId`. The `_rejectionHistory` list lives on the `WorkflowExecution` instance, so each iteration naturally gets its own rejection history. No additional scoping field is needed — the isolation is structural.
 
+Rejection is also iteration-local: rejecting a review step inside one loop iteration rewinds only that iteration's execution. Other iterations continue unaffected.
+
+Exhausting `MaxRejections` inside a loop iteration is different: at that point the iteration's child `WorkflowExecution` fails. The parent loop then applies its `IterationFailureStrategy` to that failed iteration:
+
+- `IterationFailureStrategy.Skip` — skip the failed iteration and continue with the remaining iterations.
+- `IterationFailureStrategy.Stop` — fail the loop and stop remaining iterations.
+
 | Iteration | WorkflowExecutionId | Review rejection count | Independent? |
 |---|---|---|---|
 | Iteration 1 | `exec-aaa` | 0 → 1 → 2 (fails or approves) | Yes |
@@ -212,14 +227,17 @@ The review step respects the owner-barrier model:
 
 - A review step inside a parallel branch can only target steps within the same branch (same local path).
 - It cannot target steps in the parent scope or in other branches.
-- **If a review step inside a parallel branch rejects, the entire workflow execution is cancelled** — not just the branch. The rationale: a review rejection signals that the work product is unacceptable, and partial execution of other branches with invalidated context is unsafe.
+- If a review step inside a parallel branch rejects, only that branch's local path is rewound. Sibling branches keep their current state. The parallel owner remains `Running` and waits until all branches reach a valid terminal state again.
+- A review step inside a loop body can only target steps within the same iteration's local path. Rejecting it rewinds only that iteration execution; sibling iterations are unaffected.
+- A rejection does **not** fail the current execution by itself. The current `WorkflowExecution` fails only when the current review step's active rejection count reaches `MaxRejections`.
+- If that failed execution is a loop iteration child execution, the parent loop applies its `IterationFailureStrategy` just as it would for any other failed iteration.
 - The `lastWasReview` flag is scoped per `ValidateLocalPath` call, so separate branches/bodies each allow their own review step.
 
 ---
 
 ## Test Scenarios Explored
 
-### Execution Tests (11 tests)
+### Execution Tests (14 tests)
 
 | Test | Description |
 |---|---|
@@ -227,15 +245,19 @@ The review step respects the owner-barrier model:
 | `ReviewStep_Reject_RewindsToTarget` | T → A → Review(target: A). Reject invalidates A, re-executes from A. |
 | `ReviewStep_RejectBackMultipleSteps_InvalidatesRange` | T → A → B → Review(target: A). Reject invalidates A, B, and the review step. |
 | `ReviewStep_ExceedsMaxRejections_FailsWorkflow` | maxRejections=2. After 2 rejection cycles, workflow status becomes Failed. |
+| `ReviewStep_MaxRejections_BoundaryCheck_FailsOnRecordedLimit` | maxRejections=3. The first two rejections rewind locally; the third recorded rejection fails the current execution. |
 | `ReviewStep_DownstreamRejection_ResetsUpstreamCounter` | A rejects twice, approves, B rejects past A. A's counter resets; A can reject again without hitting max. |
 | `ReviewStep_RejectionHistory_Preserved` | History records contain input/output snapshots of invalidated steps. |
 | `ReviewStep_RejectNonReviewStep_Throws` | Calling RejectReviewStep on an Action step throws. |
 | `ApproveReviewStep_OnActionStep_Throws` | Calling ApproveReviewStep on an Action step throws. |
 | `ReviewStep_BackToConditionOnSamePath_ReEvaluates` | T → Cond(→ A → Review(target: A)) → B. Rejection correctly re-executes within condition branch. |
-| `ReviewStep_InsideParallelBranch_RejectCancelsWorkflow` | Parallel(Branch1: A → Review, Branch2: B). Review rejects → entire workflow is cancelled. |
+| `ReviewStep_InsideParallelBranch_RejectRewindsOnlyThatBranch` | Parallel(Branch1: A → Review(target: A), Branch2: B). Review rejects → Branch1 rewinds locally, Branch2 remains untouched, and the parallel owner waits. |
+| `ReviewStep_InsideParallelBranch_ExhaustsMaxRejections_FailsWorkflow` | Parallel(Branch1: A → Review(target: A), Branch2: B). Branch1 reaches `MaxRejections` → the current workflow execution fails. |
 | `ReviewStep_InsideLoop_EachIterationHasOwnCounter` | Loop with review in body. Iteration 1 rejects twice and approves. Iteration 2 starts with count=0. |
+| `ReviewStep_InsideLoop_ExhaustsMaxRejections_WithSkipIterationFailureStrategy_SkipsIteration` | Loop with review in body and `IterationFailureStrategy=Skip`. When an iteration reaches `MaxRejections`, that iteration fails and is skipped while remaining iterations continue. |
+| `ReviewStep_InsideLoop_ExhaustsMaxRejections_WithStopIterationFailureStrategy_FailsLoop` | Loop with review in body and `IterationFailureStrategy=Stop`. When an iteration reaches `MaxRejections`, that iteration failure causes the parent loop to fail and remaining iterations stop. |
 
-### Definition Validation Tests (9 tests)
+### Definition Validation Tests (10 tests)
 
 | Test | Description |
 |---|---|
@@ -247,6 +269,7 @@ The review step respects the owner-barrier model:
 | `Valid_Review_MultipleReviewsWithIntervening` | T → A → Review(target: A) → B → Review(target: B) → C. Valid (non-review step between). |
 | `Invalid_Review_TargetIsTrigger_NotOnLocalPath` | Review targets the trigger step. Invalid. |
 | `Invalid_Review_TargetsParentScopeStep` | Review inside parallel branch targets parent scope step. Invalid. |
+| `Invalid_Review_TargetHasSkipFailureStrategy` | Review targets an action step whose `FailureStrategy` is `Skip`. Invalid. |
 | `Invalid_Review_TwoReviewsOnSameLocalPath` | Two review steps immediately adjacent (Review → Review with no step between). Invalid. |
 
 ---
