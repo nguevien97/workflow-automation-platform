@@ -14,6 +14,7 @@ namespace WorkflowAutomation.WorkflowExecution.Domain.Aggregates;
 public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 {
     private readonly List<StepExecution> _stepExecutions = [];
+    private readonly List<RejectionRecord> _rejectionHistory = [];
 
     public WorkflowVersionId WorkflowVersionId { get; }
     public WorkflowDefinitionSnapshot Definition { get; }
@@ -22,6 +23,7 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
     public ParentExecutionContext? ParentContext { get; }
     public WorkflowExecutionStatus Status { get; private set; }
     public IReadOnlyList<StepExecution> StepExecutions => _stepExecutions.AsReadOnly();
+    public IReadOnlyList<RejectionRecord> RejectionHistory => _rejectionHistory.AsReadOnly();
     public DateTime CreatedAt { get; private init; }
     public DateTime? CompletedAt { get; private set; }
 
@@ -102,12 +104,107 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
 
     public void ApproveReviewStep(StepExecutionId stepExecutionId)
     {
-        throw new NotImplementedException();
+        GuardStatus(WorkflowExecutionStatus.Running, nameof(ApproveReviewStep));
+
+        var step = GetStepExecutionOrThrow(stepExecutionId);
+        var stepInfo = Definition.GetStepInfo(step.StepId);
+
+        if (stepInfo is not ReviewStepInfo)
+            throw new InvalidOperationException(
+                $"Step '{stepInfo.Name}' is not a review step.");
+
+        if (step.Status != ExecutionStatus.Running)
+            throw new InvalidOperationException(
+                $"Cannot approve review step — status is '{step.Status}', expected 'Running'.");
+
+        step.CompleteWithoutOutput();
+        AdvanceOrComplete(step.Id);
     }
 
     public void RejectReviewStep(StepExecutionId stepExecutionId, string reason)
     {
-        throw new NotImplementedException();
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        GuardStatus(WorkflowExecutionStatus.Running, nameof(RejectReviewStep));
+
+        var step = GetStepExecutionOrThrow(stepExecutionId);
+        var stepInfo = Definition.GetStepInfo(step.StepId);
+
+        if (stepInfo is not ReviewStepInfo reviewInfo)
+            throw new InvalidOperationException(
+                $"Step '{stepInfo.Name}' is not a review step.");
+
+        if (step.Status != ExecutionStatus.Running)
+            throw new InvalidOperationException(
+                $"Cannot reject review step — status is '{step.Status}', expected 'Running'.");
+
+        // Find the local path containing both the review step and its target.
+        var localPath = FindLocalPathContaining(reviewInfo.StepId);
+
+        // Collect all step IDs from target to review step (inclusive) on the local path.
+        var invalidationRange = new HashSet<StepId>();
+        var inRange = false;
+        foreach (var pathStepId in localPath)
+        {
+            if (pathStepId == reviewInfo.RejectionTargetStepId)
+                inRange = true;
+
+            if (inRange)
+            {
+                invalidationRange.Add(pathStepId);
+                // Expand to include nested scope steps.
+                var pathStepInfo = Definition.GetStepInfo(pathStepId);
+                CollectScopeSteps(pathStepInfo, invalidationRange);
+            }
+
+            if (pathStepId == reviewInfo.StepId)
+                break;
+        }
+
+        // Snapshot invalidated step executions.
+        var invalidatedSnapshots = _stepExecutions
+            .Where(se => invalidationRange.Contains(se.StepId))
+            .Select(se => new InvalidatedStepExecution(se.Id, se.StepId, se.Input, se.Output))
+            .ToList();
+
+        // Record rejection in history.
+        var record = new RejectionRecord(
+            reviewInfo.StepId,
+            reviewInfo.RejectionTargetStepId,
+            reason,
+            invalidatedSnapshots);
+        _rejectionHistory.Add(record);
+
+        // Mark superseded records: for any other review step whose prior
+        // RejectionRecord entries fall within the invalidation range.
+        foreach (var priorRecord in _rejectionHistory)
+        {
+            if (priorRecord == record) continue;
+            if (priorRecord.SupersededByReviewStepId is not null) continue;
+            if (priorRecord.ReviewStepId == reviewInfo.StepId) continue;
+            if (invalidationRange.Contains(priorRecord.ReviewStepId))
+                priorRecord.MarkSupersededBy(reviewInfo.StepId);
+        }
+
+        // Remove invalidated step executions.
+        _stepExecutions.RemoveAll(se => invalidationRange.Contains(se.StepId));
+
+        // Check max rejections (count non-superseded records for this review step).
+        var activeRejectionCount = _rejectionHistory
+            .Count(r => r.ReviewStepId == reviewInfo.StepId && r.SupersededByReviewStepId is null);
+
+        AddDomainEvent(new ReviewStepRejectedEvent(
+            Id, reviewInfo.StepId, reviewInfo.RejectionTargetStepId, reason));
+
+        if (activeRejectionCount >= reviewInfo.MaxRejections)
+        {
+            FailWorkflow(
+                $"Review step '{stepInfo.Name}' reached maximum rejections ({reviewInfo.MaxRejections}).");
+        }
+        else
+        {
+            // Re-execute from target step.
+            ExecuteStep(reviewInfo.RejectionTargetStepId);
+        }
     }
 
     public void Cancel()
@@ -251,6 +348,12 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
                     AddDomainEvent(new StepFailedEvent(Id, step.StepId, step.Id, ex.Message));
                     FailWorkflow($"Step '{stepInfo.Name}' failed: {ex.Message}");
                 }
+                break;
+
+            case StepType.Review:
+                step.Start(input: null);
+                AddDomainEvent(new ReviewStepReachedEvent(Id, step.Id, step.StepId));
+                // Do not advance — stays Running as a user-facing gate.
                 break;
 
             default:
@@ -424,5 +527,83 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         if (Status != expected)
             throw new InvalidOperationException(
                 $"Cannot {operation} — status is '{Status}', expected '{expected}'.");
+    }
+
+    // ── Review step helpers ──────────────────────────────────────────────────
+
+    private List<StepId> FindLocalPathContaining(StepId stepId)
+    {
+        // Search all possible entry points for the local path containing stepId.
+        // Top-level entry.
+        if (Definition.LocalPathContainsStep(EntryStepId, stepId))
+            return Definition.GetLocalPath(EntryStepId);
+
+        // Search inside parallel branches, condition branches, loop bodies.
+        foreach (var info in Definition.AllSteps.Values)
+        {
+            switch (info)
+            {
+                case ParallelStepInfo parallel:
+                    foreach (var branchEntryId in parallel.BranchEntryStepIds)
+                    {
+                        if (Definition.LocalPathContainsStep(branchEntryId, stepId))
+                            return Definition.GetLocalPath(branchEntryId);
+                    }
+                    break;
+
+                case ConditionStepInfo condition:
+                    foreach (var rule in condition.Rules)
+                    {
+                        if (Definition.LocalPathContainsStep(rule.TargetStepId, stepId))
+                            return Definition.GetLocalPath(rule.TargetStepId);
+                    }
+                    if (condition.FallbackStepId.HasValue &&
+                        Definition.LocalPathContainsStep(condition.FallbackStepId.Value, stepId))
+                        return Definition.GetLocalPath(condition.FallbackStepId.Value);
+                    break;
+
+                case LoopStepInfo loop:
+                    if (Definition.LocalPathContainsStep(loop.LoopEntryStepId, stepId))
+                        return Definition.GetLocalPath(loop.LoopEntryStepId);
+                    break;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Could not find a local path containing step '{stepId}'.");
+    }
+
+    private void CollectScopeSteps(StepDefinitionInfo stepInfo, HashSet<StepId> collected)
+    {
+        switch (stepInfo)
+        {
+            case ParallelStepInfo parallel:
+                foreach (var branchEntryId in parallel.BranchEntryStepIds)
+                    CollectLocalPathAndNestedScopes(branchEntryId, collected);
+                break;
+
+            case ConditionStepInfo condition:
+                foreach (var rule in condition.Rules)
+                    CollectLocalPathAndNestedScopes(rule.TargetStepId, collected);
+                if (condition.FallbackStepId.HasValue)
+                    CollectLocalPathAndNestedScopes(condition.FallbackStepId.Value, collected);
+                break;
+
+            case LoopStepInfo loop:
+                CollectLocalPathAndNestedScopes(loop.LoopEntryStepId, collected);
+                break;
+        }
+    }
+
+    private void CollectLocalPathAndNestedScopes(StepId entryStepId, HashSet<StepId> collected)
+    {
+        StepId? currentId = entryStepId;
+        while (currentId.HasValue)
+        {
+            collected.Add(currentId.Value);
+            var info = Definition.GetStepInfo(currentId.Value);
+            CollectScopeSteps(info, collected);
+            currentId = info.NextStepId;
+        }
     }
 }
