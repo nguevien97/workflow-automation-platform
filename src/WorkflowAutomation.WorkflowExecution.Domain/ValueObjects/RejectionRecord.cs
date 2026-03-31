@@ -4,13 +4,18 @@ using WorkflowAutomation.WorkflowExecution.Domain.Ids;
 
 namespace WorkflowAutomation.WorkflowExecution.Domain.ValueObjects;
 
-public sealed class RejectionRecord : ValueObject
+/// <summary>
+/// Tracks a single rejection event in the workflow's rejection history.
+/// Mutable (supersession can be applied later), so this is intentionally
+/// not a <c>ValueObject</c>.
+/// </summary>
+public sealed class RejectionRecord
 {
     public StepId ReviewStepId { get; }
     public StepId TargetStepId { get; }
     public string Reason { get; }
     public DateTime OccurredOn { get; }
-    public List<InvalidatedStepExecution> InvalidatedSteps { get; }
+    public IReadOnlyList<InvalidatedStepExecution> InvalidatedSteps { get; }
     public StepId? SupersededByReviewStepId { get; private set; }
 
     public RejectionRecord(
@@ -30,17 +35,6 @@ public sealed class RejectionRecord : ValueObject
     public void MarkSupersededBy(StepId reviewStepId)
     {
         SupersededByReviewStepId = reviewStepId;
-    }
-
-    protected override IEnumerable<object?> GetEqualityComponents()
-    {
-        yield return ReviewStepId;
-        yield return TargetStepId;
-        yield return Reason;
-        yield return OccurredOn;
-        yield return SupersededByReviewStepId;
-        foreach (var step in InvalidatedSteps)
-            yield return step;
     }
 }
 
