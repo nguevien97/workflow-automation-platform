@@ -12,7 +12,13 @@
       "Bash(export PATH=\"$PATH:/c/Users/KevinNguyen.GRAPECITY/AppData/Local/Microsoft/dotnet\")",
       "Bash(dotnet build:*)",
       "Bash(find src:*)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(grep -E \"\\\\.cs$\")",
+      "Bash(xargs ls:*)",
+      "Bash(dotnet test:*)",
+      "Bash(python3 -c:*)",
+      "Bash(python -c \":*)",
+      "Bash(node -e \"require\\(''fs''\\).writeFileSync\\(''C:/Users/KevinNguyen.GRAPECITY/.claude/plans/cozy-beaming-glade-agent-a2a3cefbf889257ca.md'', ''# LoopExecution Aggregate Plan\\\\nSee conversation for full details.\\\\n''\\); console.log\\(''ok''\\);\")"
     ]
   }
 }

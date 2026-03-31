@@ -329,9 +329,9 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
                 {
                     var sourceItems = LoopSourceItems.FromResolvedValue(resolvedSource);
                     step.Start(input: null);
-                // Loop step stays Running — ActionExecution aggregate
-                // manages iteration spawning and result aggregation.
-                // Raise event with everything the handler needs.
+                // Loop step stays Running while external loop orchestration
+                // spawns child executions and aggregates iteration results.
+                // Raise an event with everything the handler needs.
                     AddDomainEvent(new LoopExecutionStartedEvent(
                         Id, step.Id, step.StepId,
                         loopInfo.LoopEntryStepId,
