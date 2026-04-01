@@ -227,6 +227,15 @@ public class ActionExecutionTests
     }
 
     [Fact]
+    public void Execute_AfterDeadline_Throws()
+    {
+        var deadline = T0.AddSeconds(5);
+        var ae = Build(deadline: deadline);
+
+        Assert.Throws<InvalidOperationException>(() => ae.Execute(T1));
+    }
+
+    [Fact]
     public void Execute_PreservesStartedAtUtc_OnRetry()
     {
         var ae = BuildRunning(FailureStrategy.Retry, maxRetries: 2);
@@ -479,61 +488,64 @@ public class ActionExecutionTests
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // 9. RecordTimedOut
+    // 9. RecordDeadlineExceeded
     // ═══════════════════════════════════════════════════════════════════════════
 
     [Fact]
-    public void RecordTimedOut_StopStrategy_FailsAction()
+    public void RecordDeadlineExceeded_FromRunning_FailsAction()
     {
-        var ae = BuildRunning(FailureStrategy.Stop);
-        ae.RecordTimedOut(1, T1, "timed out after 30s");
+        var ae = BuildRunning(FailureStrategy.Skip, deadline: T1);
+        ae.RecordDeadlineExceeded(T1, "deadline exceeded");
 
         Assert.Equal(ActionExecutionStatus.Failed, ae.Status);
-        Assert.Equal("timed out after 30s", ae.LastError);
+        Assert.Equal("deadline exceeded", ae.LastError);
+        Assert.Contains(ae.DomainEvents, e => e is ActionFailedEvent);
+        Assert.DoesNotContain(ae.DomainEvents, e => e is ActionSkippedEvent);
+    }
+
+    [Fact]
+    public void RecordDeadlineExceeded_FromPending_FailsAction()
+    {
+        var ae = Build(deadline: T1);
+        ae.RecordDeadlineExceeded(T1, "deadline exceeded before dispatch");
+
+        Assert.Equal(ActionExecutionStatus.Failed, ae.Status);
+        Assert.Equal("deadline exceeded before dispatch", ae.LastError);
         Assert.Contains(ae.DomainEvents, e => e is ActionFailedEvent);
     }
 
     [Fact]
-    public void RecordTimedOut_SkipStrategy_SkipsAction()
+    public void RecordDeadlineExceeded_FromWaitingForRetry_FailsActionAndClearsRetrySchedule()
     {
-        var ae = BuildRunning(FailureStrategy.Skip);
-        ae.RecordTimedOut(1, T1, "timed out");
+        var ae = BuildRunning(FailureStrategy.Retry, maxRetries: 3, deadline: T3);
+        ae.RecordIntegrationFailed(1, "transient", T1, T2);
 
-        Assert.Equal(ActionExecutionStatus.Skipped, ae.Status);
-        Assert.Contains(ae.DomainEvents, e => e is ActionSkippedEvent);
-    }
-
-    [Fact]
-    public void RecordTimedOut_RetryStrategy_FailsAction_BecauseNoRetryAtProvided()
-    {
-        // RecordTimedOut passes null retryAtUtc → fails even if retries remain
-        var ae = BuildRunning(FailureStrategy.Retry, maxRetries: 3);
-        ae.RecordTimedOut(1, T1, "timed out");
+        ae.RecordDeadlineExceeded(T3, "deadline exceeded while waiting");
 
         Assert.Equal(ActionExecutionStatus.Failed, ae.Status);
+        Assert.Null(ae.NextRetryAtUtc);
+        Assert.Equal("deadline exceeded while waiting", ae.LastError);
     }
 
     [Fact]
-    public void RecordTimedOut_RecordsAttemptFailure()
+    public void RecordDeadlineExceeded_RecordsRunningAttemptFailure()
     {
-        var ae = BuildRunning(FailureStrategy.Stop);
-        ae.RecordTimedOut(1, T1, "timeout reason");
+        var ae = BuildRunning(FailureStrategy.Stop, deadline: T1);
+        ae.RecordDeadlineExceeded(T1, "deadline exceeded");
 
         var attempt = ae.Attempts.Single();
         Assert.False(attempt.Succeeded);
-        Assert.Equal("timeout reason", attempt.Error);
+        Assert.Equal("deadline exceeded", attempt.Error);
         Assert.Equal(T1, attempt.CompletedAtUtc);
     }
 
     [Fact]
-    public void RecordTimedOut_StaleAttemptNumber_Throws()
+    public void RecordDeadlineExceeded_BeforeDeadline_Throws()
     {
-        var ae = BuildRunning(FailureStrategy.Retry, maxRetries: 2);
-        ae.RecordIntegrationFailed(1, "err", T1, T2);
-        ae.Execute(T2);
+        var ae = BuildRunning(deadline: T2);
 
         Assert.Throws<InvalidOperationException>(
-            () => ae.RecordTimedOut(1, T3, "stale timeout"));
+            () => ae.RecordDeadlineExceeded(T1, "too early"));
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -812,19 +824,19 @@ public class ActionExecutionTests
     }
 
     [Fact]
-    public void RecordTimedOut_NullReason_Throws()
+        public void RecordDeadlineExceeded_NullReason_Throws()
     {
         var ae = BuildRunning();
         Assert.Throws<ArgumentNullException>(
-            () => ae.RecordTimedOut(1, T1, null!));
+            () => ae.RecordDeadlineExceeded(T1, null!));
     }
 
     [Fact]
-    public void RecordTimedOut_EmptyReason_Throws()
+        public void RecordDeadlineExceeded_EmptyReason_Throws()
     {
         var ae = BuildRunning();
         Assert.Throws<ArgumentException>(
-            () => ae.RecordTimedOut(1, T1, ""));
+            () => ae.RecordDeadlineExceeded(T1, ""));
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

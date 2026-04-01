@@ -10,7 +10,7 @@ namespace WorkflowAutomation.WorkflowExecution.Domain.Aggregates;
 
 /// <summary>
 /// Runtime aggregate for one action step execution. Owns integration dispatch,
-/// retry policy, timeout handling, and terminal action outcome.
+/// retry policy, deadline expiry, and terminal action outcome.
 /// One instance per StepExecutionId.
 /// </summary>
 public sealed class ActionExecution : AggregateRoot<ActionExecutionId>
@@ -98,6 +98,11 @@ public sealed class ActionExecution : AggregateRoot<ActionExecutionId>
                 $"Expected 'Pending' or 'WaitingForRetry'.");
         }
 
+        if (nowUtc >= DeadlineUtc)
+            throw new InvalidOperationException(
+                $"Cannot execute an action after its deadline. " +
+                $"Current: {nowUtc:O}, Deadline: {DeadlineUtc:O}.");
+
         Status = ActionExecutionStatus.Running;
         AttemptCount++;
         StartedAtUtc ??= nowUtc;
@@ -153,21 +158,36 @@ public sealed class ActionExecution : AggregateRoot<ActionExecutionId>
     }
 
     /// <summary>
-    /// Records a timeout for the current attempt. Timeout is treated as a
-    /// specialized failure — the same failure strategy decision table applies.
+    /// Records that the action exceeded its overall deadline before reaching a
+    /// terminal success state. This is a terminal failure regardless of the
+    /// step's retry or skip policy because the action has no time budget left.
     /// </summary>
-    public void RecordTimedOut(int attemptNumber, DateTime nowUtc, string reason)
+    public void RecordDeadlineExceeded(DateTime nowUtc, string reason)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-        GuardRunning(nameof(RecordTimedOut));
-        GuardAttemptNumber(attemptNumber, nameof(RecordTimedOut));
+
+        if (Status is ActionExecutionStatus.Completed
+                   or ActionExecutionStatus.Skipped
+                   or ActionExecutionStatus.Failed
+                   or ActionExecutionStatus.Cancelled)
+            throw new InvalidOperationException(
+                $"Cannot record deadline exceeded for an action in '{Status}' status.");
+
+        if (nowUtc < DeadlineUtc)
+            throw new InvalidOperationException(
+                $"Cannot record deadline exceeded before the deadline has passed. " +
+                $"Current: {nowUtc:O}, Deadline: {DeadlineUtc:O}.");
 
         LastError = reason;
-        LastAttemptCompletedAtUtc = nowUtc;
-        GetCurrentAttempt().RecordFailure(nowUtc, reason);
+        NextRetryAtUtc = null;
 
-        // Timeout after deadline — no retry possible
-        ApplyFailureStrategy(reason, nowUtc, retryAtUtc: null);
+        if (Status == ActionExecutionStatus.Running)
+        {
+            LastAttemptCompletedAtUtc = nowUtc;
+            GetCurrentAttempt().RecordFailure(nowUtc, reason);
+        }
+
+        TerminalFail(reason, nowUtc);
     }
 
     /// <summary>
@@ -185,6 +205,7 @@ public sealed class ActionExecution : AggregateRoot<ActionExecutionId>
 
         Status = ActionExecutionStatus.Cancelled;
         CompletedAtUtc = nowUtc;
+            NextRetryAtUtc = null;
 
         AddDomainEvent(new ActionCancelledEvent(
             Id, WorkflowExecutionId, StepExecutionId));
@@ -234,6 +255,7 @@ public sealed class ActionExecution : AggregateRoot<ActionExecutionId>
     {
         Status = ActionExecutionStatus.Failed;
         CompletedAtUtc = nowUtc;
+        NextRetryAtUtc = null;
         AddDomainEvent(new ActionFailedEvent(
             Id, WorkflowExecutionId, StepExecutionId, error));
     }

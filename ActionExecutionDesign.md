@@ -13,7 +13,7 @@ The short version:
 - `WorkflowDefinition` owns design-time graph validity.
 - `WorkflowLanguage` owns reusable language primitives such as templates, conditions, and failure enums.
 - `WorkflowExecution` owns workflow-level graph progression, review and parallel semantics, top-level step state, and terminal workflow status.
-- `ActionExecution` owns the runtime lifecycle of a single action step after that step has started: integration dispatch, retry policy, timeout handling, cancellation, and final action outcome.
+- `ActionExecution` owns the runtime lifecycle of a single action step after that step has started: integration dispatch, retry policy, deadline expiry, cancellation, and final action outcome.
 - `LoopExecution` owns the runtime lifecycle of a single loop step after that step has started: child workflow spawning decisions, concurrency windows, iteration aggregation, iteration-failure handling, and final loop outcome.
 - The application layer should route events and commands between aggregates. It should not own action policy or loop policy.
 
@@ -86,7 +86,7 @@ What is still missing:
 
 - complete creation and persistence flow for `ActionExecution`
 - `execute()` semantics that publish an integration request
-- retry scheduling/backoff behavior and timeout handling for action steps
+- retry scheduling/backoff behavior and deadline-expiry handling for action steps
 - explicit `LoopExecution` aggregate with its own state, invariants, and event contracts
 - child-execution correlation, aggregation, concurrency, and iteration-failure handling for loop steps
 - tests for both `ActionExecution` and `LoopExecution`
@@ -110,8 +110,8 @@ That means the action lifecycle should look like this:
 2. The action step becomes `Running` and publishes `ActionExecutionRequestedEvent`.
 3. An application handler creates or loads the `ActionExecution` aggregate for that step execution and tells it to execute.
 4. `ActionExecution` publishes `IntegrationRequested`.
-5. Integration-side processing eventually reports success, failure, timeout, or integration unavailability.
-6. `ActionExecution` decides whether to complete, skip, fail, retry later, or cancel.
+5. Integration-side processing eventually reports success, failure, or integration unavailability, while an application watchdog can separately detect deadline expiry.
+6. `ActionExecution` decides whether to complete, skip, fail, retry later, cancel, or terminally fail because its deadline expired.
 7. Only terminal action events flow back into `WorkflowExecution` to update the step execution and advance or fail the workflow.
 
 For loop steps, there is a parallel but distinct flow:
@@ -162,7 +162,7 @@ It owns:
 
 - action input after template resolution
 - integration dispatch and correlation
-- retry and timeout policy for that action step
+- retry policy and overall deadline expiry for that action step
 - terminal action outcome
 
 It does not own:
@@ -175,7 +175,7 @@ Key invariants:
 
 1. There is at most one `ActionExecution` for a given `StepExecutionId`.
 2. There is at most one active integration attempt at a time.
-3. Retry, skip, fail, and timeout decisions are made within this aggregate.
+3. Retry, skip, fail, and deadline-expiry decisions are made within this aggregate.
 4. A terminal `ActionExecution` cannot be restarted.
 
 ### LoopExecution Aggregate
@@ -474,23 +474,26 @@ Decision table:
 
 `ActionRetryScheduledEvent` is missing today and must be added. Without it, the application layer has no durable signal that the aggregate is waiting to be re-dispatched.
 
-## Record Timeout
+## Record Deadline Exceeded
 
 Command:
 
 ```csharp
-void RecordTimedOut(int attemptNumber, DateTime nowUtc, string reason)
+void RecordDeadlineExceeded(DateTime nowUtc, string reason)
 ```
 
-Timeout is treated as a specialized failure path.
+This command represents the action exhausting its overall execution deadline.
 
-It must reuse the same failure-strategy decision table:
+Rules:
 
-- stop -> failed
-- skip -> skipped
-- retry -> waiting for retry if budget remains and deadline allows it
+- valid from `Pending`, `Running`, or `WaitingForRetry`
+- require `nowUtc >= DeadlineUtc`
+- if the action is currently `Running`, record the in-flight attempt as failed
+- clear any scheduled retry time
+- transition directly to `Failed`
+- publish `ActionFailedEvent`
 
-This keeps timeout semantics aligned with ordinary integration failures.
+This is intentionally stricter than an ordinary integration failure. Once the deadline has passed, the action has no remaining time budget, so there is nothing left to retry or skip.
 
 ## Cancel
 
@@ -560,6 +563,13 @@ Failure path:
 4. If skip: workflow handler calls `WorkflowExecution.RecordStepSkipped`.
 5. If fail: workflow handler calls `WorkflowExecution.RecordStepFailed`.
 
+Deadline-expiry path:
+
+1. A watchdog, scheduler, or integration worker detects that `now >= DeadlineUtc` before terminal success.
+2. It loads `ActionExecution` and calls `RecordDeadlineExceeded(now, reason)`.
+3. `ActionExecution` emits `ActionFailedEvent`.
+4. The workflow handler calls `WorkflowExecution.RecordStepFailed`.
+
 This preserves the intended orchestration split already implied by the requirements.
 
 ## Loop Child-Execution Flow
@@ -570,12 +580,12 @@ Recommended flow:
 
 1. Parent `WorkflowExecution` reaches a loop step and emits `LoopExecutionStartedEvent`.
 2. An application handler creates or loads `LoopExecution` using the parent workflow ID and parent loop `StepExecutionId`, then calls `Start`.
-3. `LoopExecution` decides which child `WorkflowExecution` instances may be spawned immediately and emits `LoopIterationSpawnRequestedEvent` records.
-4. The application layer materializes those child `WorkflowExecution` instances.
+3. `LoopExecution` decides which child `WorkflowExecution` instances may be spawned immediately and emits `LoopIterationStartedEvent` records.
+4. The application layer materializes those child `WorkflowExecution` instances and persists the mapping from loop execution and iteration identity to child `WorkflowExecutionId`.
 5. Action steps inside each child execution still use `ActionExecution` normally.
 6. When a child execution reaches a terminal state, the application layer routes that result into `LoopExecution`.
 7. `LoopExecution` records the iteration result, applies `IterationFailureStrategy`, decides whether more iterations may be spawned, and checks whether the loop is now terminal.
-8. When `LoopExecution` becomes terminal, it should publish either `LoopCompletedEvent` or `LoopFailedEvent`.
+8. When `LoopExecution` becomes terminal, it should publish `LoopCompletedEvent`, `LoopFailedEvent`, or `LoopCancelledEvent` as appropriate.
 9. The application layer handles that terminal loop event and calls the parent `WorkflowExecution` to complete or fail the loop step.
 
 That final step should not be modeled as `ActionCompletedEvent`.
@@ -586,6 +596,7 @@ The loop step is not an action step, and there may be no `ActionExecution` aggre
 - the application layer handles that event and calls `WorkflowExecution.RecordStepCompleted(parentLoopStepExecutionId, aggregatedLoopOutput)`
 - `LoopExecution` publishes `LoopFailedEvent(parentWorkflowExecutionId, parentLoopStepExecutionId, error)`
 - the application layer handles that event and calls `WorkflowExecution.RecordStepFailed(parentLoopStepExecutionId, error)`
+- if `LoopExecution` fails or is cancelled while child iterations are already running, the application layer should handle `LoopFailedEvent` or `LoopCancelledEvent`, load the active child workflow IDs for that loop, and cancel those child workflow executions
 
 Important boundary:
 
@@ -619,9 +630,9 @@ Why the application layer is still needed:
 Minimum routing responsibilities:
 
 1. handle `LoopExecutionStartedEvent`, create or load `LoopExecution`, and call `Start`
-2. handle `LoopIterationSpawnRequestedEvent` from `LoopExecution` and create child `WorkflowExecution` instances
+2. handle `LoopIterationStartedEvent` from `LoopExecution`, create child `WorkflowExecution` instances, and persist a correlation mapping back to the originating loop execution and iteration
 3. handle child terminal workflow events and route them into `LoopExecution`
-4. handle `LoopCompletedEvent` and `LoopFailedEvent` from `LoopExecution` and call `WorkflowExecution.RecordStepCompleted` or `WorkflowExecution.RecordStepFailed` on the parent workflow
+4. handle `LoopCompletedEvent`, `LoopFailedEvent`, and `LoopCancelledEvent` from `LoopExecution`; route completion or failure back into the parent workflow and cancel any still-running child workflows when the loop terminates unsuccessfully
 
 With the current contracts, item 3 means `WorkflowCompletedEvent` and `WorkflowFailedEvent`, but only for child executions.
 
@@ -692,11 +703,13 @@ This keeps the domain model deterministic without baking scheduling algorithms i
 
 Requirements state that steps can time out and that long-running workflows must remain resumable.
 
-For `ActionExecution`, timeout should be modeled as an execution deadline, not as an infrastructure-only concern.
+For `ActionExecution`, timeout should be modeled as an overall execution deadline, not as a separate per-attempt timeout policy.
 
 Minimum required rule:
 
-- when the current time passes `DeadlineUtc` before a terminal success is recorded, the action must transition through the same policy as any other failure
+- when the current time passes `DeadlineUtc` before a terminal success is recorded, the action must transition directly to `Failed`
+
+Ordinary integration failures may still be retried while there is time left before `DeadlineUtc`. Deadline expiry is different: once the deadline is exhausted, there is no retry or skip decision left to make.
 
 How to compute `DeadlineUtc`:
 
@@ -705,6 +718,11 @@ How to compute `DeadlineUtc`:
 3. persist the effective deadline in `ActionExecution`
 
 This avoids non-deterministic behavior when work is queued under rate limiting.
+
+Recommended enforcement:
+
+- `Execute(now)` should reject dispatch after the deadline has passed
+- an application watchdog or integration worker should call `RecordDeadlineExceeded(now, reason)` when the deadline is exceeded before terminal success
 
 ---
 
@@ -756,7 +774,7 @@ If a rejection invalidates a running action step, the application layer should c
 5. Extend `ActionExecutionStatus` with `WaitingForRetry` and `Skipped`.
 6. Stop treating `Skip` as a failed aggregate that merely emits `ActionSkippedEvent`.
 7. Add an execute/dispatch method that emits the integration request event.
-8. Add retry scheduling state, deadline/timeout handling, and attempt correlation to `ActionExecution`.
+8. Add retry scheduling state, deadline-expiry handling, and attempt correlation to `ActionExecution`.
 9. Add tests for both `ActionExecution` and `LoopExecution`.
 
 ## Should Change
@@ -789,8 +807,8 @@ Minimum cases:
 5. `FailureStrategySkip_FirstFailure_PublishesActionSkipped_AndStatusIsSkipped`
 6. `FailureStrategyRetry_WithRetriesRemaining_TransitionsToWaitingForRetry`
 7. `FailureStrategyRetry_Exhausted_PublishesActionFailed`
-8. `Timeout_WithRetryRemaining_SchedulesRetry`
-9. `Timeout_AfterDeadline_PublishesActionFailed`
+8. `DeadlineExceeded_FromPending_PublishesActionFailed`
+9. `DeadlineExceeded_FromRunning_PublishesActionFailed`
 10. `Cancel_FromRunning_PublishesActionCancelled`
 11. `Cancel_FromTerminalState_Throws`
 12. `DuplicateSuccessForOldAttempt_IsIgnoredOrRejected`
