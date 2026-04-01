@@ -66,6 +66,101 @@ public partial class WorkflowExecutionOwnerBarrierTests
         ParentExecutionContext? parentContext = null) =>
         new(ExecutionId(), VersionId(), snapshot, entryStepId, triggerOutput ?? Output(("seed", "alpha"), ("items", new[] { 1, 2 })), parentContext);
 
+    private static void CompleteStep(
+        WorkflowAutomation.WorkflowExecution.Domain.Aggregates.WorkflowExecution execution,
+        StepExecutionId stepExecutionId,
+        StepOutput output)
+    {
+        var stepExecution = execution.StepExecutions.Single(step => step.Id == stepExecutionId);
+        var stepInfo = execution.Definition.GetStepInfo(stepExecution.StepId);
+
+        switch (stepInfo.StepType)
+        {
+            case StepType.Action:
+                execution.RecordActionCompleted(stepExecutionId, output);
+                break;
+
+            case StepType.Loop:
+                execution.RecordLoopCompleted(stepExecutionId, output);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Test helper cannot externally complete a '{stepInfo.StepType}' step.");
+        }
+    }
+
+    private static void FailStep(
+        WorkflowAutomation.WorkflowExecution.Domain.Aggregates.WorkflowExecution execution,
+        StepExecutionId stepExecutionId,
+        string error)
+    {
+        var stepExecution = execution.StepExecutions.Single(step => step.Id == stepExecutionId);
+        var stepInfo = execution.Definition.GetStepInfo(stepExecution.StepId);
+
+        switch (stepInfo.StepType)
+        {
+            case StepType.Action:
+                execution.RecordActionFailed(stepExecutionId, error);
+                break;
+
+            case StepType.Loop:
+                execution.RecordLoopFailed(stepExecutionId, error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Test helper cannot externally fail a '{stepInfo.StepType}' step.");
+        }
+    }
+
+    [Fact]
+    public void RecordActionCompleted_ForLoopStep_Throws()
+    {
+        var trigger = Id();
+        var loop = Id();
+        var body = Id();
+
+        var execution = BuildExecution(
+            Snapshot(
+                Trigger("T", trigger, loop),
+                Loop("Loop", loop, "{{trigger.items}}", body),
+                Action("Body", body)),
+            trigger,
+            Output(("items", new[] { 1, 2 })));
+
+        execution.Start();
+
+        var loopExecution = execution.GetRunningSteps().Single(step => step.StepId == loop);
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => execution.RecordActionCompleted(loopExecution.Id, Output(("result", "wrong"))));
+
+        Assert.Contains("expected 'Action'", ex.Message);
+    }
+
+    [Fact]
+    public void RecordLoopCompleted_ForActionStep_Throws()
+    {
+        var trigger = Id();
+        var action = Id();
+
+        var execution = BuildExecution(
+            Snapshot(
+                Trigger("T", trigger, action),
+                Action("A", action)),
+            trigger);
+
+        execution.Start();
+
+        var actionExecution = execution.GetRunningSteps().Single(step => step.StepId == action);
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => execution.RecordLoopCompleted(actionExecution.Id, Output(("result", "wrong"))));
+
+        Assert.Contains("expected 'Loop'", ex.Message);
+    }
+
     [Fact]
     public void ConditionBranchCompletion_AdvancesToOwnerContinuation()
     {
@@ -94,7 +189,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         var branchExecution = runningSteps.Single(s => s.StepId == branch);
         Assert.Contains(execution.DomainEvents, e => e is ConditionBranchSelectedEvent branchSelected && branchSelected.SelectedBranchEntryStepId == branch);
 
-        execution.RecordStepCompleted(branchExecution.Id, Output(("branchOut", "done")));
+        CompleteStep(execution, branchExecution.Id, Output(("branchOut", "done")));
 
         var afterExecution = Assert.Single(execution.GetRunningSteps());
         Assert.Equal(after, afterExecution.StepId);
@@ -195,13 +290,13 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.Contains(right, runningStepIds);
 
         var leftExecution = execution.GetRunningSteps().Single(step => step.StepId == left);
-        execution.RecordStepCompleted(leftExecution.Id, Output(("left", "done")));
+        CompleteStep(execution, leftExecution.Id, Output(("left", "done")));
 
         Assert.DoesNotContain(execution.StepExecutions, step => step.StepId == after);
         Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
 
         var rightExecution = execution.GetRunningSteps().Single(step => step.StepId == right);
-        execution.RecordStepCompleted(rightExecution.Id, Output(("right", "done")));
+        CompleteStep(execution, rightExecution.Id, Output(("right", "done")));
 
         var afterExecution = execution.GetRunningSteps().Single(step => step.StepId == after);
         Assert.Equal(after, afterExecution.StepId);
@@ -230,12 +325,12 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var fetchExecution = execution.GetRunningSteps().Single(step => step.StepId == fetch);
-        execution.RecordStepCompleted(fetchExecution.Id, Output(("rows", new[] { 1, 2, 3 })));
+        CompleteStep(execution, fetchExecution.Id, Output(("rows", new[] { 1, 2, 3 })));
 
         var loopExecution = execution.GetRunningSteps().Single(step => step.StepId == loop);
         Assert.Contains(execution.DomainEvents, e => e is LoopExecutionStartedEvent loopStarted && loopStarted.LoopStepId == loop);
 
-        execution.RecordStepCompleted(loopExecution.Id, Output(("processed", new[] { "a", "b" })));
+        CompleteStep(execution, loopExecution.Id, Output(("processed", new[] { "a", "b" })));
 
         var afterExecution = execution.GetRunningSteps().Single(step => step.StepId == after);
         Assert.Equal(after, afterExecution.StepId);
@@ -269,15 +364,15 @@ public partial class WorkflowExecutionOwnerBarrierTests
         var siblingExecution = execution.GetRunningSteps().Single(step => step.StepId == sibling);
         var loopExecution = execution.GetRunningSteps().Single(step => step.StepId == loop);
 
-        execution.RecordStepCompleted(loopExecution.Id, Output(("processed", new[] { "x" })));
+        CompleteStep(execution, loopExecution.Id, Output(("processed", new[] { "x" })));
 
         var branchAfterLoopExecution = execution.GetRunningSteps().Single(step => step.StepId == branchAfterLoop);
         Assert.DoesNotContain(execution.StepExecutions, step => step.StepId == after);
 
-        execution.RecordStepCompleted(siblingExecution.Id, Output(("siblingOut", "done")));
+        CompleteStep(execution, siblingExecution.Id, Output(("siblingOut", "done")));
         Assert.DoesNotContain(execution.StepExecutions, step => step.StepId == after);
 
-        execution.RecordStepCompleted(branchAfterLoopExecution.Id, Output(("branchSummary", "ok")));
+        CompleteStep(execution, branchAfterLoopExecution.Id, Output(("branchSummary", "ok")));
 
         var afterExecution = execution.GetRunningSteps().Single(step => step.StepId == after);
         Assert.Equal(after, afterExecution.StepId);
@@ -327,7 +422,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Complete ActionLeft — parallel must NOT merge yet because
         // ActionInBranch (inside the condition's branch) is still running.
-        execution.RecordStepCompleted(actionLeftExec.Id, Output(("left", "done")));
+        CompleteStep(execution, actionLeftExec.Id, Output(("left", "done")));
 
         Assert.DoesNotContain(execution.DomainEvents,
             e => e is ParallelBranchesMergedEvent);
@@ -336,7 +431,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
 
         // Now complete ActionInBranch — parallel should merge and advance.
-        execution.RecordStepCompleted(actionInBranchExec.Id, Output(("branch", "done")));
+        CompleteStep(execution, actionInBranchExec.Id, Output(("branch", "done")));
 
         Assert.Contains(execution.DomainEvents,
             e => e is ParallelBranchesMergedEvent merged && merged.ParallelStepId == parallel);
@@ -378,8 +473,8 @@ public partial class WorkflowExecutionOwnerBarrierTests
         var actionLeftExec = execution.StepExecutions.Single(s => s.StepId == actionLeft);
         var actionInBranchExec = execution.StepExecutions.Single(s => s.StepId == actionInBranch);
 
-        execution.RecordStepCompleted(actionLeftExec.Id, Output(("left", "done")));
-        execution.RecordStepCompleted(actionInBranchExec.Id, Output(("branch", "done")));
+        CompleteStep(execution, actionLeftExec.Id, Output(("left", "done")));
+        CompleteStep(execution, actionInBranchExec.Id, Output(("branch", "done")));
 
         Assert.Equal(WorkflowExecutionStatus.Completed, execution.Status);
 
@@ -410,7 +505,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var leftExecution = Assert.Single(execution.GetRunningSteps(), step => step.StepId == left);
-        execution.RecordStepFailed(leftExecution.Id, "boom");
+        FailStep(execution, leftExecution.Id, "boom");
 
         Assert.Equal(WorkflowExecutionStatus.Failed, execution.Status);
 
@@ -482,8 +577,8 @@ public partial class WorkflowExecutionOwnerBarrierTests
         var action1Exec = execution.StepExecutions.Single(s => s.StepId == action1);
 
         // Complete left branch and first step of condition branch.
-        execution.RecordStepCompleted(actionLeftExec.Id, Output(("left", "done")));
-        execution.RecordStepCompleted(action1Exec.Id, Output(("a1", "done")));
+        CompleteStep(execution, actionLeftExec.Id, Output(("left", "done")));
+        CompleteStep(execution, action1Exec.Id, Output(("a1", "done")));
 
         // Parallel must NOT merge yet — Action2 is still running.
         Assert.DoesNotContain(execution.DomainEvents,
@@ -493,7 +588,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Complete the chain.
         var action2Exec = execution.GetRunningSteps().Single(s => s.StepId == action2);
-        execution.RecordStepCompleted(action2Exec.Id, Output(("a2", "done")));
+        CompleteStep(execution, action2Exec.Id, Output(("a2", "done")));
 
         Assert.Contains(execution.DomainEvents,
             e => e is ParallelBranchesMergedEvent merged && merged.ParallelStepId == parallel);

@@ -40,7 +40,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var actionExecution = execution.GetRunningSteps().Single(step => step.StepId == action);
-        execution.RecordStepCompleted(actionExecution.Id, Output(("draftId", "123")));
+        CompleteStep(execution, actionExecution.Id, Output(("draftId", "123")));
 
         var reviewExecution = execution.GetRunningSteps().Single(step => step.StepId == review);
         Assert.Contains(execution.DomainEvents, domainEvent => domainEvent.GetType().Name == "ReviewStepReachedEvent");
@@ -72,7 +72,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var actionExecution = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(actionExecution.Id, Output(("draftId", "123")));
+        CompleteStep(execution, actionExecution.Id, Output(("draftId", "123")));
 
         var reviewExecution = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExecution.Id);
@@ -102,7 +102,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var firstActionExecution = execution.GetRunningSteps().Single(step => step.StepId == action);
-        execution.RecordStepCompleted(firstActionExecution.Id, Output(("draftId", "123")));
+        CompleteStep(execution, firstActionExecution.Id, Output(("draftId", "123")));
 
         var reviewExecution = execution.GetRunningSteps().Single(step => step.StepId == review);
         RejectReviewStep(execution, reviewExecution.Id, "needs changes");
@@ -145,11 +145,11 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "1")));
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "2")));
+        CompleteStep(execution, bExec.Id, Output(("b", "2")));
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "3")));
+        CompleteStep(execution, cExec.Id, Output(("c", "3")));
 
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "rework all");
@@ -189,7 +189,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var firstActionExecution = execution.GetRunningSteps().Single(step => step.StepId == action);
-        execution.RecordStepCompleted(firstActionExecution.Id, Output(("draftId", "one")));
+        CompleteStep(execution, firstActionExecution.Id, Output(("draftId", "one")));
 
         var firstReviewExecution = execution.GetRunningSteps().Single(step => step.StepId == review);
         RejectReviewStep(execution, firstReviewExecution.Id, "first rejection");
@@ -197,7 +197,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
 
         var secondActionExecution = execution.GetRunningSteps().Single(step => step.StepId == action);
-        execution.RecordStepCompleted(secondActionExecution.Id, Output(("draftId", "two")));
+        CompleteStep(execution, secondActionExecution.Id, Output(("draftId", "two")));
 
         var secondReviewExecution = execution.GetRunningSteps().Single(step => step.StepId == review);
         RejectReviewStep(execution, secondReviewExecution.Id, "second rejection");
@@ -229,14 +229,14 @@ public partial class WorkflowExecutionOwnerBarrierTests
         for (var i = 0; i < 2; i++)
         {
             var actionExec = execution.GetRunningSteps().Single(s => s.StepId == action);
-            execution.RecordStepCompleted(actionExec.Id, Output(("draftId", $"attempt-{i}")));
+            CompleteStep(execution, actionExec.Id, Output(("draftId", $"attempt-{i}")));
             var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
             RejectReviewStep(execution, reviewExec.Id, $"rejection-{i}");
             Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
         }
 
         var finalAction = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(finalAction.Id, Output(("draftId", "attempt-2")));
+        CompleteStep(execution, finalAction.Id, Output(("draftId", "attempt-2")));
         var finalReview = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, finalReview.Id, "third rejection");
 
@@ -263,7 +263,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var actionExec = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(actionExec.Id, Output(("draftId", "only")));
+        CompleteStep(execution, actionExec.Id, Output(("draftId", "only")));
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "fail immediately");
 
@@ -300,13 +300,13 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var firstAction = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(firstAction.Id, Output(("draftId", "v1")));
+        CompleteStep(execution, firstAction.Id, Output(("draftId", "v1")));
 
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "wrong format");
 
         var secondAction = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(secondAction.Id, Output(("draftId", "v2")));
+        CompleteStep(execution, secondAction.Id, Output(("draftId", "v2")));
 
         var reviewExec2 = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec2.Id);
@@ -353,7 +353,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         for (var i = 0; i < 2; i++)
         {
             var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-            execution.RecordStepCompleted(aExec.Id, Output(("a", $"v{i}")));
+            CompleteStep(execution, aExec.Id, Output(("a", $"v{i}")));
             var rA = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
             RejectReviewStep(execution, rA.Id, $"reviewA-reject-{i}");
             Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
@@ -361,13 +361,13 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // A passes ReviewA this time
         var aPass = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aPass.Id, Output(("a", "v2-pass")));
+        CompleteStep(execution, aPass.Id, Output(("a", "v2-pass")));
         var rAPass = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         ApproveReviewStep(execution, rAPass.Id);
 
         // B completes, reaches ReviewB
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "done")));
+        CompleteStep(execution, bExec.Id, Output(("b", "done")));
 
         // ReviewB rejects back to A — this supersedes ReviewA's prior records
         var rB = execution.GetRunningSteps().Single(s => s.StepId == reviewB);
@@ -378,7 +378,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         for (var i = 0; i < 2; i++)
         {
             var aNew = execution.GetRunningSteps().Single(s => s.StepId == a);
-            execution.RecordStepCompleted(aNew.Id, Output(("a", $"cycle2-{i}")));
+            CompleteStep(execution, aNew.Id, Output(("a", $"cycle2-{i}")));
             var rANew = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
             RejectReviewStep(execution, rANew.Id, $"cycle2-reviewA-reject-{i}");
             Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
@@ -386,7 +386,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Third rejection in the new cycle should fail
         var aFinal = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aFinal.Id, Output(("a", "cycle2-2")));
+        CompleteStep(execution, aFinal.Id, Output(("a", "cycle2-2")));
         var rAFinal = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         RejectReviewStep(execution, rAFinal.Id, "cycle2-reviewA-reject-2");
 
@@ -426,24 +426,24 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // ReviewA rejects once
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "1")));
         var rA = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         RejectReviewStep(execution, rA.Id, "reviewA-reject-1");
         Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
 
         // ReviewA approves, move through B, ReviewB approves, move through C
         aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "2")));
+        CompleteStep(execution, aExec.Id, Output(("a", "2")));
         rA = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         ApproveReviewStep(execution, rA.Id);
 
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "1")));
         var rB = execution.GetRunningSteps().Single(s => s.StepId == reviewB);
         ApproveReviewStep(execution, rB.Id);
 
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "1")));
+        CompleteStep(execution, cExec.Id, Output(("c", "1")));
 
         // ReviewC rejects all the way back to A — supersedes ReviewA and ReviewB
         var rC = execution.GetRunningSteps().Single(s => s.StepId == reviewC);
@@ -452,14 +452,14 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // ReviewA's counter is now 0 (prior rejection superseded). Can reject again.
         aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "3")));
+        CompleteStep(execution, aExec.Id, Output(("a", "3")));
         rA = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         RejectReviewStep(execution, rA.Id, "reviewA-reject-post-supersede");
         Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
 
         // Second rejection at ReviewA now fails (maxRejections=2, count=2)
         aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "4")));
+        CompleteStep(execution, aExec.Id, Output(("a", "4")));
         rA = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         RejectReviewStep(execution, rA.Id, "reviewA-reject-final");
 
@@ -536,7 +536,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var actionExec = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(actionExec.Id, Output(("draftId", "123")));
+        CompleteStep(execution, actionExec.Id, Output(("draftId", "123")));
 
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec.Id);
@@ -565,7 +565,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         execution.Start();
         var actionExec = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(actionExec.Id, Output(("draftId", "123")));
+        CompleteStep(execution, actionExec.Id, Output(("draftId", "123")));
 
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         execution.Cancel();
@@ -607,7 +607,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Complete the branch action
         var branchExec = execution.GetRunningSteps().Single(s => s.StepId == branchAction);
-        execution.RecordStepCompleted(branchExec.Id, Output(("branch", "v1")));
+        CompleteStep(execution, branchExec.Id, Output(("branch", "v1")));
 
         // Reject at the review step
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
@@ -617,7 +617,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         var newBranchExec = execution.GetRunningSteps().Single(s => s.StepId == branchAction);
         Assert.NotEqual(branchExec.Id, newBranchExec.Id);
 
-        execution.RecordStepCompleted(newBranchExec.Id, Output(("branch", "v2")));
+        CompleteStep(execution, newBranchExec.Id, Output(("branch", "v2")));
 
         // Now approve
         var reviewExec2 = execution.GetRunningSteps().Single(s => s.StepId == review);
@@ -662,7 +662,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         // Fallback branch selected (rule doesn't match)
         Assert.DoesNotContain(execution.StepExecutions, s => s.StepId == branchA);
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == branchB);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "done")));
+        CompleteStep(execution, bExec.Id, Output(("b", "done")));
 
         var reviewBExec = execution.GetRunningSteps().Single(s => s.StepId == reviewB);
         ApproveReviewStep(execution, reviewBExec.Id);
@@ -705,7 +705,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         var siblingExec = execution.GetRunningSteps().Single(s => s.StepId == sibling);
         var branchExec = execution.GetRunningSteps().Single(s => s.StepId == branchAction);
-        execution.RecordStepCompleted(branchExec.Id, Output(("branch", "v1")));
+        CompleteStep(execution, branchExec.Id, Output(("branch", "v1")));
 
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == branchReview);
         RejectReviewStep(execution, reviewExec.Id, "rework branch");
@@ -748,7 +748,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         var siblingExecution = execution.GetRunningSteps().Single(step => step.StepId == sibling);
         var firstBranchActionExecution = execution.GetRunningSteps().Single(step => step.StepId == branchAction);
-        execution.RecordStepCompleted(firstBranchActionExecution.Id, Output(("draftId", "one")));
+        CompleteStep(execution, firstBranchActionExecution.Id, Output(("draftId", "one")));
 
         var firstReviewExecution = execution.GetRunningSteps().Single(step => step.StepId == branchReview);
         RejectReviewStep(execution, firstReviewExecution.Id, "first rejection");
@@ -756,7 +756,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.Equal(ExecutionStatus.Running, siblingExecution.Status);
 
         var secondBranchActionExecution = execution.GetRunningSteps().Single(step => step.StepId == branchAction);
-        execution.RecordStepCompleted(secondBranchActionExecution.Id, Output(("draftId", "two")));
+        CompleteStep(execution, secondBranchActionExecution.Id, Output(("draftId", "two")));
 
         var secondReviewExecution = execution.GetRunningSteps().Single(step => step.StepId == branchReview);
         RejectReviewStep(execution, secondReviewExecution.Id, "second rejection");
@@ -800,19 +800,19 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Branch 1: complete A1, reject at R1
         var a1Exec = execution.GetRunningSteps().Single(s => s.StepId == a1);
-        execution.RecordStepCompleted(a1Exec.Id, Output(("a1", "v1")));
+        CompleteStep(execution, a1Exec.Id, Output(("a1", "v1")));
         var r1Exec = execution.GetRunningSteps().Single(s => s.StepId == r1);
         RejectReviewStep(execution, r1Exec.Id, "rework branch1");
 
         // Branch 2: complete A2, approve R2
         var a2Exec = execution.GetRunningSteps().Single(s => s.StepId == a2);
-        execution.RecordStepCompleted(a2Exec.Id, Output(("a2", "v1")));
+        CompleteStep(execution, a2Exec.Id, Output(("a2", "v1")));
         var r2Exec = execution.GetRunningSteps().Single(s => s.StepId == r2);
         ApproveReviewStep(execution, r2Exec.Id);
 
         // Branch 3: complete A3, reject at R3
         var a3Exec = execution.GetRunningSteps().Single(s => s.StepId == a3);
-        execution.RecordStepCompleted(a3Exec.Id, Output(("a3", "v1")));
+        CompleteStep(execution, a3Exec.Id, Output(("a3", "v1")));
         var r3Exec = execution.GetRunningSteps().Single(s => s.StepId == r3);
         RejectReviewStep(execution, r3Exec.Id, "rework branch3");
 
@@ -821,7 +821,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Branch 1: re-execute, approve
         var a1Redo = execution.GetRunningSteps().Single(s => s.StepId == a1);
-        execution.RecordStepCompleted(a1Redo.Id, Output(("a1", "v2")));
+        CompleteStep(execution, a1Redo.Id, Output(("a1", "v2")));
         var r1Redo = execution.GetRunningSteps().Single(s => s.StepId == r1);
         ApproveReviewStep(execution, r1Redo.Id);
 
@@ -830,7 +830,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Branch 3: re-execute, approve
         var a3Redo = execution.GetRunningSteps().Single(s => s.StepId == a3);
-        execution.RecordStepCompleted(a3Redo.Id, Output(("a3", "v2")));
+        CompleteStep(execution, a3Redo.Id, Output(("a3", "v2")));
         var r3Redo = execution.GetRunningSteps().Single(s => s.StepId == r3);
         ApproveReviewStep(execution, r3Redo.Id);
 
@@ -870,13 +870,13 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var firstBodyExecution = execution.GetRunningSteps().Single(step => step.StepId == bodyAction);
-        execution.RecordStepCompleted(firstBodyExecution.Id, Output(("body", "one")));
+        CompleteStep(execution, firstBodyExecution.Id, Output(("body", "one")));
 
         var firstReviewExecution = execution.GetRunningSteps().Single(step => step.StepId == review);
         RejectReviewStep(execution, firstReviewExecution.Id, "first rejection");
 
         var secondBodyExecution = execution.GetRunningSteps().Single(step => step.StepId == bodyAction);
-        execution.RecordStepCompleted(secondBodyExecution.Id, Output(("body", "two")));
+        CompleteStep(execution, secondBodyExecution.Id, Output(("body", "two")));
 
         var secondReviewExecution = execution.GetRunningSteps().Single(step => step.StepId == review);
         RejectReviewStep(execution, secondReviewExecution.Id, "second rejection");
@@ -918,7 +918,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         for (var i = 0; i < 2; i++)
         {
             var body = iter1.GetRunningSteps().Single(s => s.StepId == bodyAction);
-            iter1.RecordStepCompleted(body.Id, Output(("body", $"iter1-{i}")));
+            CompleteStep(iter1, body.Id, Output(("body", $"iter1-{i}")));
             var rev = iter1.GetRunningSteps().Single(s => s.StepId == review);
             RejectReviewStep(iter1, rev.Id, $"iter1-reject-{i}");
             Assert.Equal(WorkflowExecutionStatus.Running, iter1.Status);
@@ -926,7 +926,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Iteration 1 approves
         var body1Pass = iter1.GetRunningSteps().Single(s => s.StepId == bodyAction);
-        iter1.RecordStepCompleted(body1Pass.Id, Output(("body", "iter1-pass")));
+        CompleteStep(iter1, body1Pass.Id, Output(("body", "iter1-pass")));
         var rev1Pass = iter1.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(iter1, rev1Pass.Id);
 
@@ -951,7 +951,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Iteration 2 can reject (proves counter=0)
         var body2 = iter2.GetRunningSteps().Single(s => s.StepId == bodyAction);
-        iter2.RecordStepCompleted(body2.Id, Output(("body", "iter2-0")));
+        CompleteStep(iter2, body2.Id, Output(("body", "iter2-0")));
         var rev2 = iter2.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(iter2, rev2.Id, "iter2-reject-0");
         Assert.Equal(WorkflowExecutionStatus.Running, iter2.Status);
@@ -985,7 +985,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var body = execution.GetRunningSteps().Single(s => s.StepId == bodyAction);
-        execution.RecordStepCompleted(body.Id, Output(("body", "only")));
+        CompleteStep(execution, body.Id, Output(("body", "only")));
         var rev = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, rev.Id, "immediate fail");
 
@@ -1024,13 +1024,13 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "1")));
 
         // Condition selects branch B → C
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "1")));
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "1")));
+        CompleteStep(execution, cExec.Id, Output(("c", "1")));
 
         // Review reached after condition completes
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
@@ -1077,16 +1077,16 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "1")));
 
         // Parallel branches run
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "1")));
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "1")));
+        CompleteStep(execution, cExec.Id, Output(("c", "1")));
 
         var dExec = execution.GetRunningSteps().Single(s => s.StepId == d);
-        execution.RecordStepCompleted(dExec.Id, Output(("d", "1")));
+        CompleteStep(execution, dExec.Id, Output(("d", "1")));
 
         // Parallel merges, review reached
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
@@ -1131,14 +1131,14 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("items", new[] { 1, 2 })));
+        CompleteStep(execution, aExec.Id, Output(("items", new[] { 1, 2 })));
 
         // Loop starts — stays running, emits LoopExecutionStartedEvent
         var loopExec = execution.GetRunningSteps().Single(s => s.StepId == loop);
         Assert.Contains(execution.DomainEvents, e => e is LoopExecutionStartedEvent);
 
         // External handler completes the loop
-        execution.RecordStepCompleted(loopExec.Id, Output(("loopResult", "done")));
+        CompleteStep(execution, loopExec.Id, Output(("loopResult", "done")));
 
         // Review reached
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
@@ -1190,14 +1190,14 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Cycle 1: A → Parallel(X→Y, Z) → Review → Reject
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "c1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "c1")));
 
         var xExec = execution.GetRunningSteps().Single(s => s.StepId == x);
         var zExec = execution.GetRunningSteps().Single(s => s.StepId == z);
-        execution.RecordStepCompleted(xExec.Id, Output(("x", "c1")));
+        CompleteStep(execution, xExec.Id, Output(("x", "c1")));
         var yExec = execution.GetRunningSteps().Single(s => s.StepId == y);
-        execution.RecordStepCompleted(zExec.Id, Output(("z", "c1")));
-        execution.RecordStepCompleted(yExec.Id, Output(("y", "c1")));
+        CompleteStep(execution, zExec.Id, Output(("z", "c1")));
+        CompleteStep(execution, yExec.Id, Output(("y", "c1")));
 
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "redo everything");
@@ -1207,14 +1207,14 @@ public partial class WorkflowExecutionOwnerBarrierTests
         // Cycle 2: re-execute from A
         var aExec2 = execution.GetRunningSteps().Single(s => s.StepId == a);
         Assert.NotEqual(aExec.Id, aExec2.Id);
-        execution.RecordStepCompleted(aExec2.Id, Output(("a", "c2")));
+        CompleteStep(execution, aExec2.Id, Output(("a", "c2")));
 
         var xExec2 = execution.GetRunningSteps().Single(s => s.StepId == x);
         var zExec2 = execution.GetRunningSteps().Single(s => s.StepId == z);
-        execution.RecordStepCompleted(xExec2.Id, Output(("x", "c2")));
+        CompleteStep(execution, xExec2.Id, Output(("x", "c2")));
         var yExec2 = execution.GetRunningSteps().Single(s => s.StepId == y);
-        execution.RecordStepCompleted(zExec2.Id, Output(("z", "c2")));
-        execution.RecordStepCompleted(yExec2.Id, Output(("y", "c2")));
+        CompleteStep(execution, zExec2.Id, Output(("z", "c2")));
+        CompleteStep(execution, yExec2.Id, Output(("y", "c2")));
 
         var reviewExec2 = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec2.Id);
@@ -1265,25 +1265,25 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Cycle 1
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "1")));
 
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "1")));
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "1")));
+        CompleteStep(execution, cExec.Id, Output(("c", "1")));
 
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "redo");
 
         // Cycle 2: A re-executes → condition re-evaluates
         var aExec2 = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec2.Id, Output(("a", "2")));
+        CompleteStep(execution, aExec2.Id, Output(("a", "2")));
 
         // Condition re-evaluates (same rule should match again)
         var bExec2 = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec2.Id, Output(("b", "2")));
+        CompleteStep(execution, bExec2.Id, Output(("b", "2")));
         var cExec2 = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec2.Id, Output(("c", "2")));
+        CompleteStep(execution, cExec2.Id, Output(("c", "2")));
 
         var reviewExec2 = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec2.Id);
@@ -1334,9 +1334,9 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Branch1: A → Condition(→B) → Review
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "1")));
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "1")));
 
         // Review reached
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
@@ -1350,14 +1350,14 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.NotEqual(aExec.Id, newA.Id);
 
         // Complete everything to verify workflow can finish
-        execution.RecordStepCompleted(newA.Id, Output(("a", "2")));
+        CompleteStep(execution, newA.Id, Output(("a", "2")));
         var newB = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(newB.Id, Output(("b", "2")));
+        CompleteStep(execution, newB.Id, Output(("b", "2")));
 
         var newReview = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, newReview.Id);
 
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "done")));
+        CompleteStep(execution, cExec.Id, Output(("c", "done")));
 
         Assert.Contains(execution.DomainEvents, e => e is ParallelBranchesMergedEvent);
         var afterExec = execution.GetRunningSteps().Single(s => s.StepId == after);
@@ -1402,25 +1402,25 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // A → ReviewA rejects
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "v1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "v1")));
         var rA = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         RejectReviewStep(execution, rA.Id, "rework A");
 
         // A → ReviewA approves
         var aExec2 = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec2.Id, Output(("a", "v2")));
+        CompleteStep(execution, aExec2.Id, Output(("a", "v2")));
         var rA2 = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         ApproveReviewStep(execution, rA2.Id);
 
         // B → ReviewB rejects
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "v1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "v1")));
         var rB = execution.GetRunningSteps().Single(s => s.StepId == reviewB);
         RejectReviewStep(execution, rB.Id, "rework B");
 
         // B → ReviewB approves
         var bExec2 = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec2.Id, Output(("b", "v2")));
+        CompleteStep(execution, bExec2.Id, Output(("b", "v2")));
         var rB2 = execution.GetRunningSteps().Single(s => s.StepId == reviewB);
         ApproveReviewStep(execution, rB2.Id);
 
@@ -1457,7 +1457,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         for (var i = 0; i < 9; i++)
         {
             var actionExec = execution.GetRunningSteps().Single(s => s.StepId == action);
-            execution.RecordStepCompleted(actionExec.Id, Output(("draftId", $"attempt-{i}")));
+            CompleteStep(execution, actionExec.Id, Output(("draftId", $"attempt-{i}")));
             var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
             RejectReviewStep(execution, reviewExec.Id, $"rejection-{i}");
             Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
@@ -1465,7 +1465,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // 10th attempt: approve
         var finalAction = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(finalAction.Id, Output(("draftId", "final")));
+        CompleteStep(execution, finalAction.Id, Output(("draftId", "final")));
         var finalReview = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, finalReview.Id);
 
@@ -1497,7 +1497,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var actionExec = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(actionExec.Id, Output(("draftId", "only")));
+        CompleteStep(execution, actionExec.Id, Output(("draftId", "only")));
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "fail");
 
@@ -1531,7 +1531,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // First entry
         var a1 = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(a1.Id, Output(("draftId", "v1")));
+        CompleteStep(execution, a1.Id, Output(("draftId", "v1")));
         var reachedEvents1 = execution.DomainEvents.Count(e => e.GetType().Name == "ReviewStepReachedEvent");
 
         // Reject → second entry
@@ -1539,7 +1539,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         RejectReviewStep(execution, r1.Id, "reject");
 
         var a2 = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(a2.Id, Output(("draftId", "v2")));
+        CompleteStep(execution, a2.Id, Output(("draftId", "v2")));
         var reachedEvents2 = execution.DomainEvents.Count(e => e.GetType().Name == "ReviewStepReachedEvent");
 
         Assert.Equal(reachedEvents1 + 1, reachedEvents2);
@@ -1565,7 +1565,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var actionExec = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(actionExec.Id, Output(("draftId", "123")));
+        CompleteStep(execution, actionExec.Id, Output(("draftId", "123")));
 
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "budget exceeds limit");
@@ -1624,17 +1624,17 @@ public partial class WorkflowExecutionOwnerBarrierTests
         // === Cycle 1: Reject ===
 
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("items", new[] { 1, 2 })));
+        CompleteStep(execution, aExec.Id, Output(("items", new[] { 1, 2 })));
 
         // Condition selects B
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "1")));
 
         // Parallel: X and Y
         var xExec = execution.GetRunningSteps().Single(s => s.StepId == x);
         var yExec = execution.GetRunningSteps().Single(s => s.StepId == y);
-        execution.RecordStepCompleted(xExec.Id, Output(("x", "1")));
-        execution.RecordStepCompleted(yExec.Id, Output(("y", "1")));
+        CompleteStep(execution, xExec.Id, Output(("x", "1")));
+        CompleteStep(execution, yExec.Id, Output(("y", "1")));
 
         // Review reached — reject back to A
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
@@ -1645,15 +1645,15 @@ public partial class WorkflowExecutionOwnerBarrierTests
         // === Cycle 2: Approve ===
 
         var aExec2 = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec2.Id, Output(("items", new[] { 1, 2 })));
+        CompleteStep(execution, aExec2.Id, Output(("items", new[] { 1, 2 })));
 
         var bExec2 = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec2.Id, Output(("b", "2")));
+        CompleteStep(execution, bExec2.Id, Output(("b", "2")));
 
         var xExec2 = execution.GetRunningSteps().Single(s => s.StepId == x);
         var yExec2 = execution.GetRunningSteps().Single(s => s.StepId == y);
-        execution.RecordStepCompleted(xExec2.Id, Output(("x", "2")));
-        execution.RecordStepCompleted(yExec2.Id, Output(("y", "2")));
+        CompleteStep(execution, xExec2.Id, Output(("x", "2")));
+        CompleteStep(execution, yExec2.Id, Output(("y", "2")));
 
         var reviewExec2 = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec2.Id);
@@ -1663,7 +1663,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.Contains(execution.DomainEvents, e => e is LoopExecutionStartedEvent);
 
         // External handler completes the loop
-        execution.RecordStepCompleted(loopExec.Id, Output(("loopResult", "done")));
+        CompleteStep(execution, loopExec.Id, Output(("loopResult", "done")));
 
         // After step
         var afterExec = execution.GetRunningSteps().Single(s => s.StepId == after);
@@ -1713,22 +1713,22 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Branch1: A → Review → Reject
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "v1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "v1")));
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "rework");
 
         // Branch2: Condition → B → C (completes)
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "done")));
+        CompleteStep(execution, bExec.Id, Output(("b", "done")));
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "done")));
+        CompleteStep(execution, cExec.Id, Output(("c", "done")));
 
         // Parallel not merged — Branch1 still in progress
         Assert.DoesNotContain(execution.StepExecutions, s => s.StepId == after);
 
         // Branch1: A re-execute → Review → Approve
         var aExec2 = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec2.Id, Output(("a", "v2")));
+        CompleteStep(execution, aExec2.Id, Output(("a", "v2")));
         var reviewExec2 = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec2.Id);
 
@@ -1772,13 +1772,13 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Branch1: B → Review
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "done")));
+        CompleteStep(execution, bExec.Id, Output(("b", "done")));
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec.Id);
 
         // Branch2: C
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "done")));
+        CompleteStep(execution, cExec.Id, Output(("c", "done")));
 
         // Merge → After
         Assert.Contains(execution.DomainEvents, e => e is ParallelBranchesMergedEvent);
@@ -1822,7 +1822,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // A → Review → Reject
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "v1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "v1")));
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "rework");
 
@@ -1835,10 +1835,10 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.NotEqual(aExec.Id, aExec2.Id);
 
         // Complete everything
-        execution.RecordStepCompleted(aExec2.Id, Output(("a", "v2")));
+        CompleteStep(execution, aExec2.Id, Output(("a", "v2")));
         var reviewExec2 = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec2.Id);
-        execution.RecordStepCompleted(xExec.Id, Output(("x", "done")));
+        CompleteStep(execution, xExec.Id, Output(("x", "done")));
 
         // Parallel merges → condition completes → After
         var afterExec = execution.GetRunningSteps().Single(s => s.StepId == after);
@@ -1881,13 +1881,13 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Complete the chain
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "1")));
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "1")));
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "1")));
+        CompleteStep(execution, cExec.Id, Output(("c", "1")));
         var dExec = execution.GetRunningSteps().Single(s => s.StepId == d);
-        execution.RecordStepCompleted(dExec.Id, Output(("d", "1")));
+        CompleteStep(execution, dExec.Id, Output(("d", "1")));
 
         // Reject back to A
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
@@ -1933,9 +1933,9 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "1")));
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "1")));
 
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "redo B only");
@@ -1989,23 +1989,23 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // A → B → Review → Reject
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "v1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "v1")));
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "v1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "v1")));
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         RejectReviewStep(execution, reviewExec.Id, "rework");
 
         // Re-execute A → B → Review → Approve
         var aExec2 = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec2.Id, Output(("a", "v2")));
+        CompleteStep(execution, aExec2.Id, Output(("a", "v2")));
         var bExec2 = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec2.Id, Output(("b", "v2")));
+        CompleteStep(execution, bExec2.Id, Output(("b", "v2")));
         var reviewExec2 = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec2.Id);
 
         // C runs
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "done")));
+        CompleteStep(execution, cExec.Id, Output(("c", "done")));
 
         Assert.Equal(WorkflowExecutionStatus.Completed, execution.Status);
     }
@@ -2050,22 +2050,22 @@ public partial class WorkflowExecutionOwnerBarrierTests
         for (var i = 0; i < 2; i++)
         {
             var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-            execution.RecordStepCompleted(aExec.Id, Output(("a", $"v{i}")));
+            CompleteStep(execution, aExec.Id, Output(("a", $"v{i}")));
             var rA = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
             RejectReviewStep(execution, rA.Id, $"reject-{i}");
         }
 
         // ReviewA approves
         var aPass = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aPass.Id, Output(("a", "pass")));
+        CompleteStep(execution, aPass.Id, Output(("a", "pass")));
         var rAPass = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         ApproveReviewStep(execution, rAPass.Id);
 
         // B → C → ReviewC → reject to B
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "1")));
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "1")));
+        CompleteStep(execution, cExec.Id, Output(("c", "1")));
         var rC = execution.GetRunningSteps().Single(s => s.StepId == reviewC);
         RejectReviewStep(execution, rC.Id, "rework B-C");
 
@@ -2096,7 +2096,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var actionExec = execution.GetRunningSteps().Single(s => s.StepId == action);
-        execution.RecordStepCompleted(actionExec.Id, Output(("draftId", "123")));
+        CompleteStep(execution, actionExec.Id, Output(("draftId", "123")));
 
         var reachedEvent = execution.DomainEvents
             .OfType<ReviewStepReachedEvent>()
@@ -2144,7 +2144,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Branch1: complete A, approve review
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "done")));
+        CompleteStep(execution, aExec.Id, Output(("a", "done")));
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec.Id);
 
@@ -2153,9 +2153,9 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Branch2: B → C
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "done")));
+        CompleteStep(execution, bExec.Id, Output(("b", "done")));
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "done")));
+        CompleteStep(execution, cExec.Id, Output(("c", "done")));
 
         // Now merge
         Assert.Contains(execution.DomainEvents, e => e is ParallelBranchesMergedEvent);
@@ -2199,12 +2199,12 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "done")));
+        CompleteStep(execution, aExec.Id, Output(("a", "done")));
 
         // Fallback branch taken
         Assert.DoesNotContain(execution.StepExecutions, s => s.StepId == neverMatch);
         var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bExec.Id, Output(("b", "v1")));
+        CompleteStep(execution, bExec.Id, Output(("b", "v1")));
 
         // Review rejects inside fallback
         var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
@@ -2214,7 +2214,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.NotEqual(bExec.Id, newB.Id);
 
         // Approve this time
-        execution.RecordStepCompleted(newB.Id, Output(("b", "v2")));
+        CompleteStep(execution, newB.Id, Output(("b", "v2")));
         var reviewExec2 = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewExec2.Id);
 
@@ -2250,12 +2250,12 @@ public partial class WorkflowExecutionOwnerBarrierTests
         execution.Start();
 
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "done")));
+        CompleteStep(execution, aExec.Id, Output(("a", "done")));
 
         for (var i = 0; i < 2; i++)
         {
             var bExec = execution.GetRunningSteps().Single(s => s.StepId == b);
-            execution.RecordStepCompleted(bExec.Id, Output(("b", $"v{i}")));
+            CompleteStep(execution, bExec.Id, Output(("b", $"v{i}")));
             var reviewExec = execution.GetRunningSteps().Single(s => s.StepId == review);
             RejectReviewStep(execution, reviewExec.Id, $"reject-{i}");
             Assert.Equal(WorkflowExecutionStatus.Running, execution.Status);
@@ -2263,7 +2263,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // Third attempt: approve
         var bFinal = execution.GetRunningSteps().Single(s => s.StepId == b);
-        execution.RecordStepCompleted(bFinal.Id, Output(("b", "v-final")));
+        CompleteStep(execution, bFinal.Id, Output(("b", "v-final")));
         var reviewFinal = execution.GetRunningSteps().Single(s => s.StepId == review);
         ApproveReviewStep(execution, reviewFinal.Id);
 
@@ -2325,24 +2325,24 @@ public partial class WorkflowExecutionOwnerBarrierTests
 
         // === Branch 1: A → ReviewA (reject once, then approve) ===
         var aExec = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec.Id, Output(("a", "v1")));
+        CompleteStep(execution, aExec.Id, Output(("a", "v1")));
         var rA = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         RejectReviewStep(execution, rA.Id, "rework A");
 
         var aExec2 = execution.GetRunningSteps().Single(s => s.StepId == a);
-        execution.RecordStepCompleted(aExec2.Id, Output(("a", "v2")));
+        CompleteStep(execution, aExec2.Id, Output(("a", "v2")));
         var rA2 = execution.GetRunningSteps().Single(s => s.StepId == reviewA);
         ApproveReviewStep(execution, rA2.Id);
 
         // === Branch 2: Condition → C → D ===
         var cExec = execution.GetRunningSteps().Single(s => s.StepId == c);
-        execution.RecordStepCompleted(cExec.Id, Output(("c", "done")));
+        CompleteStep(execution, cExec.Id, Output(("c", "done")));
         var dExec = execution.GetRunningSteps().Single(s => s.StepId == d);
-        execution.RecordStepCompleted(dExec.Id, Output(("d", "done")));
+        CompleteStep(execution, dExec.Id, Output(("d", "done")));
 
         // === Branch 3: E ===
         var eExec = execution.GetRunningSteps().Single(s => s.StepId == e);
-        execution.RecordStepCompleted(eExec.Id, Output(("e", "done")));
+        CompleteStep(execution, eExec.Id, Output(("e", "done")));
 
         // Parallel merges
         Assert.Contains(execution.DomainEvents, ev => ev is ParallelBranchesMergedEvent);
@@ -2352,7 +2352,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         Assert.Contains(execution.DomainEvents, ev => ev is LoopExecutionStartedEvent);
 
         // Complete loop (external handler)
-        execution.RecordStepCompleted(loopExec.Id, Output(("loopResult", "batch1")));
+        CompleteStep(execution, loopExec.Id, Output(("loopResult", "batch1")));
 
         // === Review after loop: reject once ===
         var rLoop = execution.GetRunningSteps().Single(s => s.StepId == reviewLoop);
@@ -2361,7 +2361,7 @@ public partial class WorkflowExecutionOwnerBarrierTests
         // Loop re-executes
         var loopExec2 = execution.GetRunningSteps().Single(s => s.StepId == loop);
         Assert.NotEqual(loopExec.Id, loopExec2.Id);
-        execution.RecordStepCompleted(loopExec2.Id, Output(("loopResult", "batch2")));
+        CompleteStep(execution, loopExec2.Id, Output(("loopResult", "batch2")));
 
         // === Approve post-loop review ===
         var rLoop2 = execution.GetRunningSteps().Single(s => s.StepId == reviewLoop);
@@ -2393,3 +2393,4 @@ public partial class WorkflowExecutionOwnerBarrierTests
         string reason) =>
         execution.RejectReviewStep(stepExecutionId, reason);
 }
+

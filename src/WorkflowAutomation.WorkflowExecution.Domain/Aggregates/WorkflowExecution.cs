@@ -65,41 +65,126 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
         AddDomainEvent(new WorkflowStartedEvent(Id));
     }
 
-    public void RecordStepCompleted(
+    public void RecordActionCompleted(
         StepExecutionId stepExecutionId,
         StepOutput output)
     {
-        ArgumentNullException.ThrowIfNull(output);
-        GuardStatus(WorkflowExecutionStatus.Running, nameof(RecordStepCompleted));
-
-        var step = GetStepExecutionOrThrow(stepExecutionId);
-        step.CompleteWithOutput(output);
-
-        AddDomainEvent(new StepCompletedEvent(Id, step.StepId, stepExecutionId));
-        AdvanceOrComplete(step.Id);
+        RecordSpecializedStepCompleted(
+            stepExecutionId,
+            output,
+            StepType.Action,
+            nameof(RecordActionCompleted));
     }
 
-    public void RecordStepSkipped(StepExecutionId stepExecutionId)
+    public void RecordLoopCompleted(
+        StepExecutionId stepExecutionId,
+        StepOutput output)
     {
-        GuardStatus(WorkflowExecutionStatus.Running, nameof(RecordStepSkipped));
-
-        var step = GetStepExecutionOrThrow(stepExecutionId);
-        step.Skip();
-
-        AddDomainEvent(new StepSkippedEvent(Id, step.StepId, stepExecutionId));
-        AdvanceOrComplete(step.Id);
+        RecordSpecializedStepCompleted(
+            stepExecutionId,
+            output,
+            StepType.Loop,
+            nameof(RecordLoopCompleted));
     }
 
-    public void RecordStepFailed(StepExecutionId stepExecutionId, string error)
+    public void RecordActionSkipped(StepExecutionId stepExecutionId)
+    {
+        RecordSpecializedStepSkipped(
+            stepExecutionId,
+            StepType.Action,
+            nameof(RecordActionSkipped));
+    }
+
+    public void RecordActionFailed(StepExecutionId stepExecutionId, string error)
+    {
+        RecordSpecializedStepFailed(
+            stepExecutionId,
+            error,
+            StepType.Action,
+            nameof(RecordActionFailed));
+    }
+
+    public void RecordLoopFailed(StepExecutionId stepExecutionId, string error)
+    {
+        RecordSpecializedStepFailed(
+            stepExecutionId,
+            error,
+            StepType.Loop,
+            nameof(RecordLoopFailed));
+    }
+
+    private void RecordSpecializedStepCompleted(
+        StepExecutionId stepExecutionId,
+        StepOutput output,
+        StepType expectedStepType,
+        string operation)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        GuardStatus(WorkflowExecutionStatus.Running, operation);
+
+        var step = GetStepExecutionOrThrow(stepExecutionId);
+        GuardStepType(step.StepId, expectedStepType, operation);
+        CompleteStep(step, output);
+    }
+
+    private void RecordSpecializedStepSkipped(
+        StepExecutionId stepExecutionId,
+        StepType expectedStepType,
+        string operation)
+    {
+        GuardStatus(WorkflowExecutionStatus.Running, operation);
+
+        var step = GetStepExecutionOrThrow(stepExecutionId);
+        GuardStepType(step.StepId, expectedStepType, operation);
+        SkipStep(step);
+    }
+
+    private void RecordSpecializedStepFailed(
+        StepExecutionId stepExecutionId,
+        string error,
+        StepType expectedStepType,
+        string operation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(error);
-        GuardStatus(WorkflowExecutionStatus.Running, nameof(RecordStepFailed));
+        GuardStatus(WorkflowExecutionStatus.Running, operation);
 
         var step = GetStepExecutionOrThrow(stepExecutionId);
+        GuardStepType(step.StepId, expectedStepType, operation);
+        FailStep(step, error);
+    }
+
+    private void CompleteStep(StepExecution step, StepOutput output)
+    {
+        step.CompleteWithOutput(output);
+        AddDomainEvent(new StepCompletedEvent(Id, step.StepId, step.Id));
+        AdvanceOrComplete(step.Id);
+    }
+
+    private void SkipStep(StepExecution step)
+    {
+        step.Skip();
+        AddDomainEvent(new StepSkippedEvent(Id, step.StepId, step.Id));
+        AdvanceOrComplete(step.Id);
+    }
+
+    private void FailStep(StepExecution step, string error)
+    {
         step.Fail(error);
 
-        AddDomainEvent(new StepFailedEvent(Id, step.StepId, stepExecutionId, error));
+        AddDomainEvent(new StepFailedEvent(Id, step.StepId, step.Id, error));
         FailWorkflow($"Step '{Definition.GetStepInfo(step.StepId).Name}' failed: {error}");
+    }
+
+    private void GuardStepType(
+        StepId stepId,
+        StepType expectedStepType,
+        string operation)
+    {
+        var stepInfo = Definition.GetStepInfo(stepId);
+
+        if (stepInfo.StepType != expectedStepType)
+            throw new InvalidOperationException(
+                $"Cannot {operation} for step '{stepInfo.Name}' because it is a '{stepInfo.StepType}' step, expected '{expectedStepType}'.");
     }
 
     public void ApproveReviewStep(StepExecutionId stepExecutionId)
@@ -266,8 +351,9 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
                 var actionInfo = (ActionStepInfo)stepInfo;
                 var resolvedInput = ResolveInputMappings(actionInfo.InputMappings);
                 step.Start(resolvedInput);
-                // Action step is now Running — an external handler will
-                // call RecordStepCompleted/Skipped/Failed when done.
+                // Action step is now Running — ActionExecution owns the
+                // integration policy and reports its terminal outcome back
+                // through the explicit action-step APIs below.
                 AddDomainEvent(new ActionExecutionRequestedEvent(
                     Id, step.Id, step.StepId,
                     actionInfo.IntegrationId, actionInfo.CommandName,
@@ -329,9 +415,9 @@ public sealed class WorkflowExecution : AggregateRoot<WorkflowExecutionId>
                 {
                     var sourceItems = LoopSourceItems.FromResolvedValue(resolvedSource);
                     step.Start(input: null);
-                // Loop step stays Running while external loop orchestration
-                // spawns child executions and aggregates iteration results.
-                // Raise an event with everything the handler needs.
+                    // Loop step stays Running while LoopExecution owns
+                    // iteration orchestration and later reports a terminal
+                    // loop outcome back through the explicit loop-step APIs.
                     AddDomainEvent(new LoopExecutionStartedEvent(
                         Id, step.Id, step.StepId,
                         loopInfo.LoopEntryStepId,

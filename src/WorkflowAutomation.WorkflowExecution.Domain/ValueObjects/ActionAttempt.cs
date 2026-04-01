@@ -1,12 +1,14 @@
-using WorkflowAutomation.SharedKernel.Domain;
-
 namespace WorkflowAutomation.WorkflowExecution.Domain.ValueObjects;
 
 /// <summary>
-/// Immutable record of one integration dispatch attempt within an ActionExecution.
+/// Mutable record of one integration dispatch attempt within an ActionExecution.
 /// Tracks timing, outcome, and correlation data for audit and stale-response protection.
+///
+/// Not a <c>ValueObject</c> because its state is mutated after construction
+/// (when the attempt completes). Owned exclusively by <c>ActionExecution</c>
+/// and never compared by value.
 /// </summary>
-public sealed class ActionAttempt : ValueObject
+public sealed class ActionAttempt
 {
     public int AttemptNumber { get; }
     public DateTime StartedAtUtc { get; }
@@ -33,14 +35,5 @@ public sealed class ActionAttempt : ValueObject
         CompletedAtUtc = completedAtUtc;
         Error = error;
         Succeeded = false;
-    }
-
-    protected override IEnumerable<object?> GetEqualityComponents()
-    {
-        yield return AttemptNumber;
-        yield return StartedAtUtc;
-        yield return CompletedAtUtc;
-        yield return Error;
-        yield return Succeeded;
     }
 }
