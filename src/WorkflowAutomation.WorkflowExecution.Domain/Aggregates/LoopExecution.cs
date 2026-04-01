@@ -127,6 +127,7 @@ public sealed class LoopExecution : AggregateRoot<LoopExecutionId>
 
         CancelNonTerminalIterations();
         Status = LoopExecutionStatus.Cancelled;
+        AddDomainEvent(new LoopCancelledEvent(Id, WorkflowExecutionId, StepExecutionId));
     }
 
     // ── Private helpers ─────────────────────────────────────────────────────

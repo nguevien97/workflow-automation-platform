@@ -905,4 +905,885 @@ public class LoopExecutionTests
 
         Assert.Equal(LoopExecutionStatus.Completed, loop.Status);
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 18. Argument Validation
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void RecordIterationCompleted_NullOutput_Throws()
+    {
+        var loop = Build();
+        loop.Start();
+
+        var iter0 = GetIteration(loop, 0);
+        Assert.Throws<ArgumentNullException>(
+            () => loop.RecordIterationCompleted(iter0.Id, null!));
+    }
+
+    [Fact]
+    public void RecordIterationFailed_NullError_Throws()
+    {
+        var loop = Build();
+        loop.Start();
+
+        var iter0 = GetIteration(loop, 0);
+        Assert.Throws<ArgumentNullException>(
+            () => loop.RecordIterationFailed(iter0.Id, null!));
+    }
+
+    [Fact]
+    public void RecordIterationFailed_EmptyError_Throws()
+    {
+        var loop = Build();
+        loop.Start();
+
+        var iter0 = GetIteration(loop, 0);
+        Assert.Throws<ArgumentException>(
+            () => loop.RecordIterationFailed(iter0.Id, ""));
+    }
+
+    [Fact]
+    public void RecordIterationFailed_WhitespaceError_Throws()
+    {
+        var loop = Build();
+        loop.Start();
+
+        var iter0 = GetIteration(loop, 0);
+        Assert.Throws<ArgumentException>(
+            () => loop.RecordIterationFailed(iter0.Id, "   "));
+    }
+
+    [Fact]
+    public void Constructor_NullUpstreamOutputs_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            new LoopExecution(
+                LeId(), WeId(), SeId(), SId(), SId(),
+                Items("a"),
+                ConcurrencyMode.Sequential, null,
+                IterationFailureStrategy.Skip, null!));
+    }
+
+    [Fact]
+    public void Constructor_ParallelWithNegativeMaxConcurrency_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Build(concurrencyMode: ConcurrencyMode.Parallel, maxConcurrency: -1));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 19. Late Arrival — Recording Results After Loop is Terminal
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void RecordIterationCompleted_AfterLoopCompleted_Throws()
+    {
+        var loop = Build(sourceItems: Items("a"));
+        loop.Start();
+
+        loop.RecordIterationCompleted(GetIteration(loop, 0).Id, Output(("r", "v")));
+        Assert.Equal(LoopExecutionStatus.Completed, loop.Status);
+
+        // A second call would need a different iteration, but the loop is completed
+        // Simulate by creating a 2-item loop and completing both in sequence
+        var loop2 = Build(
+            sourceItems: Items("a", "b"),
+            concurrencyMode: ConcurrencyMode.Parallel);
+        loop2.Start();
+
+        loop2.RecordIterationCompleted(GetIteration(loop2, 0).Id, Output(("r", "v0")));
+        loop2.RecordIterationCompleted(GetIteration(loop2, 1).Id, Output(("r", "v1")));
+
+        Assert.Equal(LoopExecutionStatus.Completed, loop2.Status);
+    }
+
+    [Fact]
+    public void Parallel_Stop_RecordIterationCompleted_AfterLoopFailed_Throws()
+    {
+        var loop = Build(
+            sourceItems: Items("a", "b", "c"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            failureStrategy: IterationFailureStrategy.Stop);
+        loop.Start();
+
+        // Fail iteration 0 → loop fails, iterations 1 and 2 cancelled
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "fatal");
+        Assert.Equal(LoopExecutionStatus.Failed, loop.Status);
+
+        // Late arrival for iteration 1 (was Running, now Cancelled) — loop is Failed, should throw
+        Assert.Throws<InvalidOperationException>(
+            () => loop.RecordIterationCompleted(
+                GetIteration(loop, 1).Id, Output(("r", "late"))));
+    }
+
+    [Fact]
+    public void Parallel_Stop_RecordIterationFailed_AfterLoopFailed_Throws()
+    {
+        var loop = Build(
+            sourceItems: Items("a", "b", "c"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            failureStrategy: IterationFailureStrategy.Stop);
+        loop.Start();
+
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "fatal");
+        Assert.Equal(LoopExecutionStatus.Failed, loop.Status);
+
+        Assert.Throws<InvalidOperationException>(
+            () => loop.RecordIterationFailed(
+                GetIteration(loop, 1).Id, "also failed"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 20. Concurrency Invariant Verification
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Sequential_NeverExceedsOneRunning_ThroughFullLifecycle()
+    {
+        var loop = Build(sourceItems: Items("a", "b", "c", "d"));
+        loop.Start();
+
+        for (var i = 0; i < 4; i++)
+        {
+            var runningCount = loop.Iterations.Count(it => it.Status == LoopIterationStatus.Running);
+            Assert.Equal(1, runningCount);
+
+            loop.RecordIterationCompleted(GetIteration(loop, i).Id, Output(("r", $"v{i}")));
+        }
+
+        Assert.Equal(LoopExecutionStatus.Completed, loop.Status);
+    }
+
+    [Fact]
+    public void Parallel_Bounded_NeverExceedsMaxConcurrency_ThroughFullLifecycle()
+    {
+        const int maxConcurrency = 2;
+        var loop = Build(
+            sourceItems: Items("a", "b", "c", "d", "e"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            maxConcurrency: maxConcurrency);
+        loop.Start();
+
+        // Complete iterations one by one, checking concurrency after each operation
+        for (var i = 0; i < 5; i++)
+        {
+            var runningCount = loop.Iterations.Count(it => it.Status == LoopIterationStatus.Running);
+            Assert.True(runningCount <= maxConcurrency,
+                $"Running count {runningCount} exceeds max concurrency {maxConcurrency} at step {i}");
+            Assert.True(runningCount >= 1,
+                $"Expected at least 1 running iteration at step {i}");
+
+            loop.RecordIterationCompleted(GetIteration(loop, i).Id, Output(("r", $"v{i}")));
+        }
+
+        Assert.Equal(LoopExecutionStatus.Completed, loop.Status);
+    }
+
+    [Fact]
+    public void Parallel_Skip_ConcurrencySlotFreedBySkippedIteration()
+    {
+        var loop = Build(
+            sourceItems: Items("a", "b", "c", "d", "e"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            maxConcurrency: 2,
+            failureStrategy: IterationFailureStrategy.Skip);
+        loop.Start();
+
+        // 0,1 running; 2,3,4 pending
+        Assert.Equal(2, loop.Iterations.Count(it => it.Status == LoopIterationStatus.Running));
+
+        // Fail 0 (skip) → should free a slot and start 2
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "fail");
+
+        var runningCount = loop.Iterations.Count(it => it.Status == LoopIterationStatus.Running);
+        Assert.Equal(2, runningCount); // 1 and 2 running now
+
+        // Fail 1 (skip) → should free a slot and start 3
+        loop.RecordIterationFailed(GetIteration(loop, 1).Id, "fail");
+
+        runningCount = loop.Iterations.Count(it => it.Status == LoopIterationStatus.Running);
+        Assert.Equal(2, runningCount); // 2 and 3 running now
+
+        // Complete 2 → should start 4
+        loop.RecordIterationCompleted(GetIteration(loop, 2).Id, Output(("r", "v2")));
+        Assert.Equal(LoopIterationStatus.Running, GetIteration(loop, 4).Status);
+
+        // Complete remaining
+        loop.RecordIterationCompleted(GetIteration(loop, 3).Id, Output(("r", "v3")));
+        loop.RecordIterationCompleted(GetIteration(loop, 4).Id, Output(("r", "v4")));
+
+        Assert.Equal(LoopExecutionStatus.Completed, loop.Status);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 21. Aggregated Output — Detailed Value Verification
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void AggregatedOutput_Parallel_OutOfOrderCompletion_PreservesSourceOrder()
+    {
+        var loop = Build(
+            sourceItems: Items("a", "b", "c", "d"),
+            concurrencyMode: ConcurrencyMode.Parallel);
+        loop.Start();
+
+        // Complete in reverse: 3, 1, 0, 2
+        loop.RecordIterationCompleted(GetIteration(loop, 3).Id, Output(("val", "d-result")));
+        loop.RecordIterationCompleted(GetIteration(loop, 1).Id, Output(("val", "b-result")));
+        loop.RecordIterationCompleted(GetIteration(loop, 0).Id, Output(("val", "a-result")));
+        loop.RecordIterationCompleted(GetIteration(loop, 2).Id, Output(("val", "c-result")));
+
+        var evt = loop.DomainEvents.OfType<LoopCompletedEvent>().Single();
+        var items = (IReadOnlyList<object?>)evt.AggregatedOutput.Data["items"];
+
+        Assert.Equal(4, items.Count);
+        // Each item is the StepOutput, verify order matches source indices
+        var output0 = (StepOutput)items[0]!;
+        var output1 = (StepOutput)items[1]!;
+        var output2 = (StepOutput)items[2]!;
+        var output3 = (StepOutput)items[3]!;
+        Assert.Equal("a-result", output0.Data["val"]);
+        Assert.Equal("b-result", output1.Data["val"]);
+        Assert.Equal("c-result", output2.Data["val"]);
+        Assert.Equal("d-result", output3.Data["val"]);
+    }
+
+    [Fact]
+    public void AggregatedOutput_MixedCompletedAndSkipped_NullForSkipped()
+    {
+        var loop = Build(
+            sourceItems: Items("a", "b", "c", "d"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            failureStrategy: IterationFailureStrategy.Skip);
+        loop.Start();
+
+        loop.RecordIterationCompleted(GetIteration(loop, 0).Id, Output(("v", "r0")));
+        loop.RecordIterationFailed(GetIteration(loop, 1).Id, "err");
+        loop.RecordIterationCompleted(GetIteration(loop, 2).Id, Output(("v", "r2")));
+        loop.RecordIterationFailed(GetIteration(loop, 3).Id, "err");
+
+        var evt = loop.DomainEvents.OfType<LoopCompletedEvent>().Single();
+        var items = (IReadOnlyList<object?>)evt.AggregatedOutput.Data["items"];
+
+        Assert.NotNull(items[0]);
+        Assert.Null(items[1]); // skipped
+        Assert.NotNull(items[2]);
+        Assert.Null(items[3]); // skipped
+    }
+
+    [Fact]
+    public void AggregatedOutput_AllSkipped_AllNullButLoopCompletes()
+    {
+        var loop = Build(
+            sourceItems: Items("a", "b"),
+            failureStrategy: IterationFailureStrategy.Skip);
+        loop.Start();
+
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "err");
+        loop.RecordIterationFailed(GetIteration(loop, 1).Id, "err");
+
+        var evt = loop.DomainEvents.OfType<LoopCompletedEvent>().Single();
+        var items = (IReadOnlyList<object?>)evt.AggregatedOutput.Data["items"];
+
+        Assert.Equal(2, items.Count);
+        Assert.Null(items[0]);
+        Assert.Null(items[1]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 22. LoopIteration Entity — State Guard Tests
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void LoopIteration_MarkCompleted_FromPending_Throws()
+    {
+        var loop = Build(sourceItems: Items("a", "b"));
+        loop.Start();
+
+        // iter1 is still Pending — completing it directly should fail
+        var iter1 = GetIteration(loop, 1);
+        Assert.Equal(LoopIterationStatus.Pending, iter1.Status);
+        Assert.Throws<InvalidOperationException>(
+            () => iter1.MarkCompleted(Output(("r", "v"))));
+    }
+
+    [Fact]
+    public void LoopIteration_MarkFailed_FromPending_Throws()
+    {
+        var loop = Build(sourceItems: Items("a", "b"));
+        loop.Start();
+
+        var iter1 = GetIteration(loop, 1);
+        Assert.Throws<InvalidOperationException>(
+            () => iter1.MarkFailed("err"));
+    }
+
+    [Fact]
+    public void LoopIteration_MarkSkipped_FromRunning_Throws()
+    {
+        var loop = Build();
+        loop.Start();
+
+        var iter0 = GetIteration(loop, 0);
+        Assert.Equal(LoopIterationStatus.Running, iter0.Status);
+        Assert.Throws<InvalidOperationException>(
+            () => iter0.MarkSkipped()); // must be Failed first
+    }
+
+    [Fact]
+    public void LoopIteration_Cancel_FromCompleted_Throws()
+    {
+        var loop = Build();
+        loop.Start();
+
+        var iter0 = GetIteration(loop, 0);
+        iter0.MarkCompleted(Output(("r", "v")));
+
+        Assert.Throws<InvalidOperationException>(() => iter0.Cancel());
+    }
+
+    [Fact]
+    public void LoopIteration_Cancel_FromSkipped_Throws()
+    {
+        var loop = Build(failureStrategy: IterationFailureStrategy.Skip);
+        loop.Start();
+
+        var iter0 = GetIteration(loop, 0);
+        iter0.MarkFailed("err");
+        iter0.MarkSkipped();
+
+        Assert.Throws<InvalidOperationException>(() => iter0.Cancel());
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 23. Cancel — Event and Iteration State Completeness
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Cancel_EmitsLoopCancelledEvent()
+    {
+        var loop = Build();
+        loop.Start();
+
+        loop.Cancel();
+
+        var evt = loop.DomainEvents.OfType<LoopCancelledEvent>().Single();
+        Assert.Equal(loop.Id, evt.LoopExecutionId);
+        Assert.Equal(loop.WorkflowExecutionId, evt.WorkflowExecutionId);
+        Assert.Equal(loop.StepExecutionId, evt.StepExecutionId);
+
+        // Must not emit completion or failure events
+        Assert.DoesNotContain(loop.DomainEvents, e => e is LoopCompletedEvent);
+        Assert.DoesNotContain(loop.DomainEvents, e => e is LoopFailedEvent);
+    }
+
+    [Fact]
+    public void Cancel_FromRunning_LeavesCompletedIterationsIntact()
+    {
+        var loop = Build(
+            sourceItems: Items("a", "b", "c", "d"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            maxConcurrency: 2);
+        loop.Start();
+
+        // Complete iter0, fail+skip iter1
+        loop.RecordIterationCompleted(GetIteration(loop, 0).Id, Output(("r", "v0")));
+
+        // iter2 now running (filled slot from iter0 completion), iter3 pending
+        loop.Cancel();
+
+        Assert.Equal(LoopIterationStatus.Completed, GetIteration(loop, 0).Status);
+        Assert.Equal(LoopIterationStatus.Cancelled, GetIteration(loop, 2).Status);
+        Assert.Equal(LoopIterationStatus.Cancelled, GetIteration(loop, 3).Status);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 24. Sequential — Iteration Advancement Order
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Sequential_IterationsAdvanceInIndexOrder()
+    {
+        var loop = Build(sourceItems: Items("a", "b", "c", "d", "e"));
+        loop.Start();
+
+        var startedEvents = new List<LoopIterationStartedEvent>();
+
+        for (var i = 0; i < 5; i++)
+        {
+            var newEvents = loop.DomainEvents
+                .OfType<LoopIterationStartedEvent>()
+                .Where(e => !startedEvents.Contains(e))
+                .ToList();
+
+            Assert.Single(newEvents);
+            Assert.Equal(i, newEvents[0].IterationIndex);
+            startedEvents.AddRange(newEvents);
+
+            loop.RecordIterationCompleted(GetIteration(loop, i).Id, Output(("r", $"v{i}")));
+        }
+
+        Assert.Equal(5, startedEvents.Count);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 25. Upstream Outputs — Passed Through to Started Events
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void UpstreamOutputs_PassedToAllIterationStartedEvents()
+    {
+        var upstream = new Dictionary<string, StepOutput>
+        {
+            ["FetchData"] = Output(("url", "https://example.com")),
+            ["Transform"] = Output(("count", 42))
+        };
+
+        var loop = Build(
+            sourceItems: Items("a", "b"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            upstreamOutputs: upstream);
+        loop.Start();
+
+        var events = loop.DomainEvents.OfType<LoopIterationStartedEvent>().ToList();
+        Assert.Equal(2, events.Count);
+
+        foreach (var evt in events)
+        {
+            Assert.Same(upstream, evt.UpstreamStepOutputs);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 26. LoopFailedEvent — Carries Data for RecordStepFailed Routing
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void LoopFailedEvent_CarriesParentCorrelationIds()
+    {
+        var weId = WeId();
+        var seId = SeId();
+
+        var loop = new LoopExecution(
+            LeId(), weId, seId, SId(), SId(),
+            Items("a"),
+            ConcurrencyMode.Sequential, null,
+            IterationFailureStrategy.Stop, NoUpstream());
+
+        loop.Start();
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "fatal");
+
+        var evt = loop.DomainEvents.OfType<LoopFailedEvent>().Single();
+        Assert.Equal(weId, evt.WorkflowExecutionId);
+        Assert.Equal(seId, evt.StepExecutionId);
+        Assert.Contains("fatal", evt.Error);
+    }
+
+    [Fact]
+    public void LoopFailedEvent_NotEmittedOnSkipStrategy()
+    {
+        var loop = Build(
+            sourceItems: Items("a"),
+            failureStrategy: IterationFailureStrategy.Skip);
+        loop.Start();
+
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "not fatal");
+
+        Assert.DoesNotContain(loop.DomainEvents, e => e is LoopFailedEvent);
+        Assert.Contains(loop.DomainEvents, e => e is LoopCompletedEvent);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 27. LoopIterationStartedEvent — Carries Data for Child WE Spawning
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void LoopIterationStartedEvent_CarriesIterationItem()
+    {
+        var loop = Build(
+            sourceItems: Items("item-x", "item-y", "item-z"),
+            concurrencyMode: ConcurrencyMode.Parallel);
+        loop.Start();
+
+        var events = loop.DomainEvents.OfType<LoopIterationStartedEvent>()
+            .OrderBy(e => e.IterationIndex).ToList();
+
+        Assert.Equal("item-x", events[0].IterationItem);
+        Assert.Equal("item-y", events[1].IterationItem);
+        Assert.Equal("item-z", events[2].IterationItem);
+    }
+
+    [Fact]
+    public void LoopIterationStartedEvent_CarriesLoopEntryStepId_ForChildWECreation()
+    {
+        var entryStepId = SId();
+
+        var loop = new LoopExecution(
+            LeId(), WeId(), SeId(),
+            loopStepId: SId(),
+            loopEntryStepId: entryStepId,
+            Items("a"),
+            ConcurrencyMode.Sequential, null,
+            IterationFailureStrategy.Skip, NoUpstream());
+
+        loop.Start();
+
+        var evt = loop.DomainEvents.OfType<LoopIterationStartedEvent>().Single();
+        Assert.Equal(entryStepId, evt.LoopEntryStepId);
+    }
+
+    [Fact]
+    public void LoopIterationStartedEvent_CarriesIterationId_ForResultCorrelation()
+    {
+        var loop = Build(sourceItems: Items("a"));
+        loop.Start();
+
+        var evt = loop.DomainEvents.OfType<LoopIterationStartedEvent>().Single();
+        var iteration = GetIteration(loop, 0);
+        Assert.Equal(iteration.Id, evt.LoopIterationId);
+    }
+
+    [Fact]
+    public void Sequential_SecondIterationStartedEvent_EmittedOnlyAfterFirstCompletes()
+    {
+        var loop = Build(sourceItems: Items("a", "b"));
+        loop.Start();
+
+        // Only 1 started event at this point
+        var eventsAfterStart = loop.DomainEvents.OfType<LoopIterationStartedEvent>().ToList();
+        Assert.Single(eventsAfterStart);
+        Assert.Equal(0, eventsAfterStart[0].IterationIndex);
+
+        loop.RecordIterationCompleted(GetIteration(loop, 0).Id, Output(("r", "v0")));
+
+        // Now the second started event appears
+        var eventsAfterComplete = loop.DomainEvents.OfType<LoopIterationStartedEvent>().ToList();
+        Assert.Equal(2, eventsAfterComplete.Count);
+        Assert.Equal(1, eventsAfterComplete[1].IterationIndex);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 28. Child WE Terminal → Route to LoopExecution
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void RecordIterationCompleted_Sequential_AdvancesToNextAndEventuallyCompletes()
+    {
+        // Simulates app handler routing child WE completion → LoopExecution
+        var loop = Build(sourceItems: Items("a", "b", "c"));
+        loop.Start();
+
+        for (var i = 0; i < 3; i++)
+        {
+            var iter = GetIteration(loop, i);
+            Assert.Equal(LoopIterationStatus.Running, iter.Status);
+
+            // Simulates: child WE completed → handler calls RecordIterationCompleted
+            loop.RecordIterationCompleted(iter.Id, Output(("result", $"child-{i}-output")));
+            Assert.Equal(LoopIterationStatus.Completed, iter.Status);
+        }
+
+        Assert.Equal(LoopExecutionStatus.Completed, loop.Status);
+
+        // LoopCompletedEvent carries data for parent WE.RecordStepCompleted
+        var completedEvt = loop.DomainEvents.OfType<LoopCompletedEvent>().Single();
+        Assert.NotNull(completedEvt.AggregatedOutput);
+        Assert.Equal(loop.WorkflowExecutionId, completedEvt.WorkflowExecutionId);
+        Assert.Equal(loop.StepExecutionId, completedEvt.StepExecutionId);
+    }
+
+    [Fact]
+    public void RecordIterationFailed_Sequential_SkipStrategy_AdvancesAndEventuallyCompletes()
+    {
+        // Simulates app handler routing child WE failure → LoopExecution
+        var loop = Build(
+            sourceItems: Items("a", "b"),
+            failureStrategy: IterationFailureStrategy.Skip);
+        loop.Start();
+
+        // Child WE 0 fails → handler calls RecordIterationFailed
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "child-0 failed");
+        Assert.Equal(LoopIterationStatus.Skipped, GetIteration(loop, 0).Status);
+        Assert.Equal(LoopExecutionStatus.Running, loop.Status);
+
+        // Child WE 1 succeeds
+        loop.RecordIterationCompleted(GetIteration(loop, 1).Id, Output(("r", "v1")));
+
+        Assert.Equal(LoopExecutionStatus.Completed, loop.Status);
+        // LoopCompletedEvent (not LoopFailedEvent) because skip strategy allows completion
+        Assert.Contains(loop.DomainEvents, e => e is LoopCompletedEvent);
+        Assert.DoesNotContain(loop.DomainEvents, e => e is LoopFailedEvent);
+    }
+
+    [Fact]
+    public void RecordIterationFailed_Sequential_StopStrategy_FailsLoopImmediately()
+    {
+        // Simulates app handler routing child WE failure → LoopExecution
+        var loop = Build(
+            sourceItems: Items("a", "b", "c"),
+            failureStrategy: IterationFailureStrategy.Stop);
+        loop.Start();
+
+        // Child WE 0 fails → loop fails, remaining iterations cancelled
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "child-0 failed");
+
+        Assert.Equal(LoopExecutionStatus.Failed, loop.Status);
+        // LoopFailedEvent carries data for parent WE.RecordStepFailed
+        var failedEvt = loop.DomainEvents.OfType<LoopFailedEvent>().Single();
+        Assert.Equal(loop.WorkflowExecutionId, failedEvt.WorkflowExecutionId);
+        Assert.Equal(loop.StepExecutionId, failedEvt.StepExecutionId);
+        Assert.Contains("child-0 failed", failedEvt.Error);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 29. Top-Down Cancellation Cascade
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Cancel_FromPending_EmitsLoopCancelledEvent()
+    {
+        // Parent WE cancelled before loop even started
+        var loop = Build();
+        loop.Cancel();
+
+        Assert.Equal(LoopExecutionStatus.Cancelled, loop.Status);
+        var evt = loop.DomainEvents.OfType<LoopCancelledEvent>().Single();
+        Assert.Equal(loop.WorkflowExecutionId, evt.WorkflowExecutionId);
+        Assert.Equal(loop.StepExecutionId, evt.StepExecutionId);
+    }
+
+    [Fact]
+    public void Cancel_FromRunning_EmitsLoopCancelledEvent_WithCorrectCorrelation()
+    {
+        // Parent WE cancelled while loop has in-flight iterations
+        var weId = WeId();
+        var seId = SeId();
+
+        var loop = new LoopExecution(
+            LeId(), weId, seId, SId(), SId(),
+            Items("a", "b", "c"),
+            ConcurrencyMode.Parallel, null,
+            IterationFailureStrategy.Skip, NoUpstream());
+        loop.Start();
+
+        loop.Cancel();
+
+        var evt = loop.DomainEvents.OfType<LoopCancelledEvent>().Single();
+        // App handler uses these IDs to find and cancel child WEs
+        Assert.Equal(weId, evt.WorkflowExecutionId);
+        Assert.Equal(seId, evt.StepExecutionId);
+    }
+
+    [Fact]
+    public void Cancel_FromRunning_CancelsRunningAndPendingIterations_LeavesCompletedAlone()
+    {
+        var loop = Build(
+            sourceItems: Items("a", "b", "c", "d", "e"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            maxConcurrency: 3,
+            failureStrategy: IterationFailureStrategy.Skip);
+        loop.Start();
+
+        // Complete 0, skip 1 — now 0=Completed, 1=Skipped, 2=Running, 3=Running, 4=Pending
+        loop.RecordIterationCompleted(GetIteration(loop, 0).Id, Output(("r", "v0")));
+        loop.RecordIterationFailed(GetIteration(loop, 1).Id, "skip");
+
+        // At this point 2,3 running (took 1's slot), 4 running (took 0's slot)
+        // Cancel the loop (simulates parent WE cancellation)
+        loop.Cancel();
+
+        Assert.Equal(LoopIterationStatus.Completed, GetIteration(loop, 0).Status);
+        Assert.Equal(LoopIterationStatus.Skipped, GetIteration(loop, 1).Status);
+        // Remaining non-terminal iterations are cancelled
+        Assert.Equal(LoopIterationStatus.Cancelled, GetIteration(loop, 2).Status);
+        Assert.Equal(LoopIterationStatus.Cancelled, GetIteration(loop, 3).Status);
+        Assert.Equal(LoopIterationStatus.Cancelled, GetIteration(loop, 4).Status);
+    }
+
+    [Fact]
+    public void Cancel_FromRunning_NoIterationStartedEventsAfterCancel()
+    {
+        var loop = Build(sourceItems: Items("a", "b", "c"));
+        loop.Start();
+
+        var eventsBeforeCancel = loop.DomainEvents.OfType<LoopIterationStartedEvent>().Count();
+
+        loop.Cancel();
+
+        // Cancel must not start any new iterations
+        var eventsAfterCancel = loop.DomainEvents.OfType<LoopIterationStartedEvent>().Count();
+        Assert.Equal(eventsBeforeCancel, eventsAfterCancel);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 30. Late Arrival After Loop Terminal (Parallel Stop)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Parallel_Stop_LateCompletion_AfterLoopFailed_ThrowsGuard()
+    {
+        // 3 items all parallel, fail iter0 → loop fails, others cancelled
+        var loop = Build(
+            sourceItems: Items("a", "b", "c"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            failureStrategy: IterationFailureStrategy.Stop);
+        loop.Start();
+
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "fatal");
+        Assert.Equal(LoopExecutionStatus.Failed, loop.Status);
+
+        // Late arrival: iter1 completed after loop is already Failed
+        // The loop aggregate correctly rejects this because status is not Running
+        Assert.Throws<InvalidOperationException>(
+            () => loop.RecordIterationCompleted(
+                GetIteration(loop, 1).Id, Output(("r", "late"))));
+    }
+
+    [Fact]
+    public void Parallel_Stop_LateFailure_AfterLoopFailed_ThrowsGuard()
+    {
+        var loop = Build(
+            sourceItems: Items("a", "b", "c"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            failureStrategy: IterationFailureStrategy.Stop);
+        loop.Start();
+
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "fatal");
+        Assert.Equal(LoopExecutionStatus.Failed, loop.Status);
+
+        // Late arrival: iter2 also failed, but loop already terminal
+        Assert.Throws<InvalidOperationException>(
+            () => loop.RecordIterationFailed(
+                GetIteration(loop, 2).Id, "also failed"));
+    }
+
+    [Fact]
+    public void Parallel_LateCompletion_AfterLoopCompleted_ThrowsGuard()
+    {
+        // Edge case: all iterations completed but a duplicate arrives
+        var loop = Build(
+            sourceItems: Items("a"),
+            concurrencyMode: ConcurrencyMode.Parallel);
+        loop.Start();
+
+        loop.RecordIterationCompleted(GetIteration(loop, 0).Id, Output(("r", "v")));
+        Assert.Equal(LoopExecutionStatus.Completed, loop.Status);
+
+        // Attempting to complete the same iteration again throws at iteration level
+        Assert.Throws<InvalidOperationException>(
+            () => loop.RecordIterationCompleted(
+                GetIteration(loop, 0).Id, Output(("r", "duplicate"))));
+    }
+
+    [Fact]
+    public void Parallel_LateArrival_AfterCancel_ThrowsGuard()
+    {
+        var loop = Build(
+            sourceItems: Items("a", "b"),
+            concurrencyMode: ConcurrencyMode.Parallel);
+        loop.Start();
+
+        loop.Cancel();
+        Assert.Equal(LoopExecutionStatus.Cancelled, loop.Status);
+
+        // Late completion after cancel — rejected by status guard
+        Assert.Throws<InvalidOperationException>(
+            () => loop.RecordIterationCompleted(
+                GetIteration(loop, 0).Id, Output(("r", "late"))));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 31. Parallel Stop — LoopFailedEvent Enables Child WE Cancellation
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Parallel_Stop_LoopFailedEvent_CarriesLoopExecutionId_ForChildLookup()
+    {
+        // When app handler receives LoopFailedEvent, it needs the LoopExecutionId
+        // to look up which child WEs belong to this loop and cancel them
+        var loopId = LeId();
+
+        var loop = new LoopExecution(
+            loopId, WeId(), SeId(), SId(), SId(),
+            Items("a", "b"),
+            ConcurrencyMode.Parallel, null,
+            IterationFailureStrategy.Stop, NoUpstream());
+        loop.Start();
+
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "fatal");
+
+        var evt = loop.DomainEvents.OfType<LoopFailedEvent>().Single();
+        Assert.Equal(loopId, evt.LoopExecutionId);
+    }
+
+    [Fact]
+    public void Parallel_Stop_FailedIteration_RemainingIterationsAlreadyCancelled()
+    {
+        // Verifies that by the time LoopFailedEvent is emitted,
+        // all non-terminal iterations are already cancelled at the loop level.
+        // The app handler still needs to cancel the child WorkflowExecutions.
+        var loop = Build(
+            sourceItems: Items("a", "b", "c", "d"),
+            concurrencyMode: ConcurrencyMode.Parallel,
+            maxConcurrency: 2,
+            failureStrategy: IterationFailureStrategy.Stop);
+        loop.Start();
+
+        // iter0, iter1 running; iter2, iter3 pending
+        loop.RecordIterationCompleted(GetIteration(loop, 0).Id, Output(("r", "v0")));
+        // iter0=Completed, iter1=Running, iter2=Running (filled slot), iter3=Pending
+
+        loop.RecordIterationFailed(GetIteration(loop, 1).Id, "fatal");
+
+        // All non-terminal iterations cancelled at loop level
+        Assert.Equal(LoopIterationStatus.Completed, GetIteration(loop, 0).Status);
+        Assert.Equal(LoopIterationStatus.Failed, GetIteration(loop, 1).Status);
+        Assert.Equal(LoopIterationStatus.Cancelled, GetIteration(loop, 2).Status);
+        Assert.Equal(LoopIterationStatus.Cancelled, GetIteration(loop, 3).Status);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 32. LoopCancelledEvent — Symmetry with ActionCancelledEvent
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void LoopCancelledEvent_IsDistinctFromFailedAndCompleted()
+    {
+        var loop = Build(sourceItems: Items("a", "b"));
+        loop.Start();
+
+        loop.RecordIterationCompleted(GetIteration(loop, 0).Id, Output(("r", "v0")));
+        loop.Cancel();
+
+        // Exactly one cancelled event, no completed or failed events
+        Assert.Single(loop.DomainEvents.OfType<LoopCancelledEvent>());
+        Assert.DoesNotContain(loop.DomainEvents, e => e is LoopCompletedEvent);
+        Assert.DoesNotContain(loop.DomainEvents, e => e is LoopFailedEvent);
+    }
+
+    [Fact]
+    public void LoopCancelledEvent_NotEmittedOnNormalCompletion()
+    {
+        var loop = Build(sourceItems: Items("a"));
+        loop.Start();
+        loop.RecordIterationCompleted(GetIteration(loop, 0).Id, Output(("r", "v")));
+
+        Assert.Equal(LoopExecutionStatus.Completed, loop.Status);
+        Assert.DoesNotContain(loop.DomainEvents, e => e is LoopCancelledEvent);
+    }
+
+    [Fact]
+    public void LoopCancelledEvent_NotEmittedOnStopAllFailure()
+    {
+        var loop = Build(
+            sourceItems: Items("a"),
+            failureStrategy: IterationFailureStrategy.Stop);
+        loop.Start();
+        loop.RecordIterationFailed(GetIteration(loop, 0).Id, "fatal");
+
+        Assert.Equal(LoopExecutionStatus.Failed, loop.Status);
+        Assert.DoesNotContain(loop.DomainEvents, e => e is LoopCancelledEvent);
+        Assert.Contains(loop.DomainEvents, e => e is LoopFailedEvent);
+    }
 }
