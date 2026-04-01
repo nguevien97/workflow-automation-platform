@@ -1,4 +1,5 @@
 using WorkflowAutomation.SharedKernel.Domain;
+using WorkflowAutomation.SharedKernel.Domain.Ids;
 using WorkflowAutomation.WorkflowLanguage.Domain.Enums;
 using WorkflowAutomation.WorkflowExecution.Domain.Enums;
 using WorkflowAutomation.WorkflowExecution.Domain.Events;
@@ -7,23 +8,59 @@ using WorkflowAutomation.WorkflowExecution.Domain.ValueObjects;
 
 namespace WorkflowAutomation.WorkflowExecution.Domain.Aggregates;
 
+/// <summary>
+/// Runtime aggregate for one action step execution. Owns integration dispatch,
+/// retry policy, timeout handling, and terminal action outcome.
+/// One instance per StepExecutionId.
+/// </summary>
 public sealed class ActionExecution : AggregateRoot<ActionExecutionId>
 {
+    private readonly List<ActionAttempt> _attempts = [];
+
+    // ── Identity and correlation ────────────────────────────────────────────
+
     public WorkflowExecutionId WorkflowExecutionId { get; }
     public StepExecutionId StepExecutionId { get; }
+    public StepId StepId { get; }
+
+    // ── Immutable runtime snapshot ──────────────────────────────────────────
+
     public ActionStepDefinitionSnapshot StepDefinition { get; }
-    public int RetryCount { get; private set; }
-    public ActionExecutionStatus Status { get; private set; }
     public StepInput Input { get; }
+    public DateTime DeadlineUtc { get; }
+
+    // ── Execution state ─────────────────────────────────────────────────────
+
+    public ActionExecutionStatus Status { get; private set; }
     public StepOutput? Output { get; private set; }
-    public string? Error { get; private set; }
+    public string? LastError { get; private set; }
+    public int AttemptCount { get; private set; }
+    public int RetryCount => Math.Max(AttemptCount - 1, 0);
+    public bool HasRemainingRetries => RetryCount < StepDefinition.MaxRetries;
+
+    // ── Timestamps ──────────────────────────────────────────────────────────
+
+    public DateTime CreatedAtUtc { get; }
+    public DateTime? StartedAtUtc { get; private set; }
+    public DateTime? CompletedAtUtc { get; private set; }
+    public DateTime? LastAttemptStartedAtUtc { get; private set; }
+    public DateTime? LastAttemptCompletedAtUtc { get; private set; }
+    public DateTime? NextRetryAtUtc { get; private set; }
+
+    // ── Attempt history ─────────────────────────────────────────────────────
+
+    public IReadOnlyList<ActionAttempt> Attempts => _attempts.AsReadOnly();
+
+    // ── Constructor ─────────────────────────────────────────────────────────
 
     public ActionExecution(
         ActionExecutionId id,
         WorkflowExecutionId workflowExecutionId,
         StepExecutionId stepExecutionId,
+        StepId stepId,
         ActionStepDefinitionSnapshot stepDefinition,
-        StepInput input)
+        StepInput input,
+        DateTime deadlineUtc)
         : base(id)
     {
         ArgumentNullException.ThrowIfNull(stepDefinition);
@@ -31,74 +68,191 @@ public sealed class ActionExecution : AggregateRoot<ActionExecutionId>
 
         WorkflowExecutionId = workflowExecutionId;
         StepExecutionId = stepExecutionId;
+        StepId = stepId;
         StepDefinition = stepDefinition;
         Input = input;
+        DeadlineUtc = deadlineUtc;
         Status = ActionExecutionStatus.Pending;
+        CreatedAtUtc = DateTime.UtcNow;
     }
 
-    public void MarkRunning()
+    // ── Public behavior ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Dispatches the action to the integration layer.
+    /// Valid from Pending (first attempt) or WaitingForRetry (subsequent attempts).
+    /// </summary>
+    public void Execute(DateTime nowUtc)
     {
-        if (Status is not (ActionExecutionStatus.Pending or ActionExecutionStatus.Failed))
+        if (Status == ActionExecutionStatus.WaitingForRetry)
+        {
+            if (nowUtc < NextRetryAtUtc)
+                throw new InvalidOperationException(
+                    $"Cannot execute before scheduled retry time. " +
+                    $"Current: {nowUtc:O}, NextRetryAt: {NextRetryAtUtc:O}.");
+        }
+        else if (Status != ActionExecutionStatus.Pending)
+        {
             throw new InvalidOperationException(
-                $"Cannot start an action in '{Status}' status.");
+                $"Cannot execute an action in '{Status}' status. " +
+                $"Expected 'Pending' or 'WaitingForRetry'.");
+        }
 
         Status = ActionExecutionStatus.Running;
-        Error = null;
+        AttemptCount++;
+        StartedAtUtc ??= nowUtc;
+        LastAttemptStartedAtUtc = nowUtc;
+        LastAttemptCompletedAtUtc = null;
+        NextRetryAtUtc = null;
+        LastError = null;
+
+        _attempts.Add(new ActionAttempt(AttemptCount, nowUtc));
+
+        AddDomainEvent(new IntegrationRequestedEvent(
+            Id, WorkflowExecutionId, StepExecutionId, StepId,
+            StepDefinition.IntegrationId, StepDefinition.CommandName,
+            Input, AttemptCount, DeadlineUtc));
     }
 
-    public void MarkCompleted(StepOutput output)
+    /// <summary>
+    /// Records a successful integration response for the current attempt.
+    /// </summary>
+    public void RecordIntegrationSucceeded(int attemptNumber, StepOutput output, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(output);
-        GuardRunning(nameof(MarkCompleted));
+        GuardRunning(nameof(RecordIntegrationSucceeded));
+        GuardAttemptNumber(attemptNumber, nameof(RecordIntegrationSucceeded));
 
         Status = ActionExecutionStatus.Completed;
         Output = output;
+        CompletedAtUtc = nowUtc;
+        LastAttemptCompletedAtUtc = nowUtc;
 
-        AddDomainEvent(new ActionCompletedEvent(WorkflowExecutionId, StepExecutionId, output));
+        GetCurrentAttempt().RecordSuccess(nowUtc);
+
+        AddDomainEvent(new ActionCompletedEvent(
+            Id, WorkflowExecutionId, StepExecutionId, output));
     }
-
-    public void MarkFailed(string error)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(error);
-        GuardRunning(nameof(MarkFailed));
-
-        RetryCount++;
-        Error = error;
-        Status = ActionExecutionStatus.Failed;
-
-        if (RetryCount > StepDefinition.MaxRetries ||
-            StepDefinition.FailureStrategy != FailureStrategy.Retry)
-        {
-            AddDomainEvent(StepDefinition.FailureStrategy == FailureStrategy.Skip
-                ? new ActionSkippedEvent(WorkflowExecutionId, StepExecutionId)
-                : new ActionFailedEvent(WorkflowExecutionId, StepExecutionId, error));
-        }
-    }
-
-    public bool CanRetry =>
-        Status == ActionExecutionStatus.Failed &&
-        StepDefinition.FailureStrategy == FailureStrategy.Retry &&
-        RetryCount <= StepDefinition.MaxRetries;
 
     /// <summary>
-    /// Cancels this action mid-execution — used when a sibling parallel
-    /// branch has failed with a Stop strategy.  Distinct from a Skip
-    /// (which is the step's own FailureStrategy).
+    /// Records a failed integration response for the current attempt.
+    /// Applies the failure strategy decision table to determine the next state.
     /// </summary>
-    public void Cancel()
+    public void RecordIntegrationFailed(
+        int attemptNumber, string error, DateTime nowUtc, DateTime? retryAtUtc)
     {
-        if (Status is ActionExecutionStatus.Completed or ActionExecutionStatus.Cancelled)
+        ArgumentException.ThrowIfNullOrWhiteSpace(error);
+        GuardRunning(nameof(RecordIntegrationFailed));
+        GuardAttemptNumber(attemptNumber, nameof(RecordIntegrationFailed));
+
+        LastError = error;
+        LastAttemptCompletedAtUtc = nowUtc;
+        GetCurrentAttempt().RecordFailure(nowUtc, error);
+
+        ApplyFailureStrategy(error, nowUtc, retryAtUtc);
+    }
+
+    /// <summary>
+    /// Records a timeout for the current attempt. Timeout is treated as a
+    /// specialized failure — the same failure strategy decision table applies.
+    /// </summary>
+    public void RecordTimedOut(int attemptNumber, DateTime nowUtc, string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        GuardRunning(nameof(RecordTimedOut));
+        GuardAttemptNumber(attemptNumber, nameof(RecordTimedOut));
+
+        LastError = reason;
+        LastAttemptCompletedAtUtc = nowUtc;
+        GetCurrentAttempt().RecordFailure(nowUtc, reason);
+
+        // Timeout after deadline — no retry possible
+        ApplyFailureStrategy(reason, nowUtc, retryAtUtc: null);
+    }
+
+    /// <summary>
+    /// Cancels this action execution. Valid from Pending, Running, or WaitingForRetry.
+    /// Distinct from Skip (which is the step's own failure strategy).
+    /// </summary>
+    public void Cancel(DateTime nowUtc)
+    {
+        if (Status is ActionExecutionStatus.Completed
+                   or ActionExecutionStatus.Skipped
+                   or ActionExecutionStatus.Failed
+                   or ActionExecutionStatus.Cancelled)
             throw new InvalidOperationException(
                 $"Cannot cancel an action execution in '{Status}' status.");
 
         Status = ActionExecutionStatus.Cancelled;
-        AddDomainEvent(new ActionCancelledEvent(WorkflowExecutionId, StepExecutionId));
+        CompletedAtUtc = nowUtc;
+
+        AddDomainEvent(new ActionCancelledEvent(
+            Id, WorkflowExecutionId, StepExecutionId));
     }
+
+    /// <summary>
+    /// Whether this action is waiting for a retry and can be re-executed.
+    /// </summary>
+    public bool CanRetry => Status == ActionExecutionStatus.WaitingForRetry;
+
+    // ── Private helpers ─────────────────────────────────────────────────────
+
+    private void ApplyFailureStrategy(string error, DateTime nowUtc, DateTime? retryAtUtc)
+    {
+        switch (StepDefinition.FailureStrategy)
+        {
+            case FailureStrategy.Stop:
+                TerminalFail(error, nowUtc);
+                break;
+
+            case FailureStrategy.Skip:
+                Status = ActionExecutionStatus.Skipped;
+                CompletedAtUtc = nowUtc;
+                AddDomainEvent(new ActionSkippedEvent(
+                    Id, WorkflowExecutionId, StepExecutionId));
+                break;
+
+            case FailureStrategy.Retry:
+                if (HasRemainingRetries && retryAtUtc.HasValue && retryAtUtc.Value < DeadlineUtc)
+                {
+                    Status = ActionExecutionStatus.WaitingForRetry;
+                    NextRetryAtUtc = retryAtUtc.Value;
+                }
+                else
+                {
+                    TerminalFail(error, nowUtc);
+                }
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported failure strategy '{StepDefinition.FailureStrategy}'.");
+        }
+    }
+
+    private void TerminalFail(string error, DateTime nowUtc)
+    {
+        Status = ActionExecutionStatus.Failed;
+        CompletedAtUtc = nowUtc;
+        AddDomainEvent(new ActionFailedEvent(
+            Id, WorkflowExecutionId, StepExecutionId, error));
+    }
+
+    private ActionAttempt GetCurrentAttempt() =>
+        _attempts[^1];
 
     private void GuardRunning(string operation)
     {
         if (Status != ActionExecutionStatus.Running)
             throw new InvalidOperationException(
-                $"Cannot {operation} an action in '{Status}' status. Expected 'Running'.");
+                $"Cannot {operation} — status is '{Status}', expected 'Running'.");
+    }
+
+    private void GuardAttemptNumber(int attemptNumber, string operation)
+    {
+        if (attemptNumber != AttemptCount)
+            throw new InvalidOperationException(
+                $"Cannot {operation} — attempt number {attemptNumber} does not match " +
+                $"current attempt {AttemptCount}. The response may be stale.");
     }
 }
