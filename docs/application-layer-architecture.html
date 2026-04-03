@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Layer Architecture Guide — Workflow Automation Platform</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --surface-2: #1c2333;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-muted: #8b949e;
+            --accent: #58a6ff;
+            --accent-2: #3fb950;
+            --accent-3: #d2a8ff;
+            --accent-4: #f0883e;
+            --accent-5: #f85149;
+            --code-bg: #0d1117;
+            --table-alt: #1118;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            font-size: 16px;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 40px 24px 120px;
+        }
+
+        /* Header */
+        .hero {
+            text-align: center;
+            padding: 60px 0 48px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 48px;
+        }
+        .hero h1 {
+            font-size: 2.4em;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-3));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .hero .subtitle {
+            font-size: 1.2em;
+            color: var(--text-muted);
+            max-width: 640px;
+            margin: 0 auto;
+        }
+        .hero .badge {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 600;
+            background: rgba(88, 166, 255, 0.15);
+            color: var(--accent);
+            border: 1px solid rgba(88, 166, 255, 0.3);
+        }
+
+        /* TOC */
+        .toc {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 24px 32px;
+            margin-bottom: 48px;
+        }
+        .toc h2 {
+            font-size: 1em;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+        .toc ol {
+            columns: 2;
+            column-gap: 32px;
+            padding-left: 20px;
+        }
+        .toc li {
+            margin-bottom: 6px;
+            font-size: 0.92em;
+            break-inside: avoid;
+        }
+        .toc a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        .toc a:hover { text-decoration: underline; }
+
+        /* Sections */
+        section {
+            margin-bottom: 56px;
+        }
+        h2 {
+            font-size: 1.6em;
+            font-weight: 700;
+            margin-bottom: 20px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--border);
+            color: var(--text);
+        }
+        h2 .num {
+            color: var(--accent);
+            margin-right: 8px;
+        }
+        h3 {
+            font-size: 1.15em;
+            font-weight: 600;
+            margin: 28px 0 12px;
+            color: var(--accent-3);
+        }
+        h4 {
+            font-size: 1em;
+            font-weight: 600;
+            margin: 20px 0 8px;
+            color: var(--accent-4);
+        }
+
+        p { margin-bottom: 14px; }
+
+        /* Lists */
+        ul, ol {
+            margin-bottom: 14px;
+            padding-left: 24px;
+        }
+        li { margin-bottom: 6px; }
+
+        /* Code */
+        code {
+            font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+            font-size: 0.88em;
+            background: var(--surface-2);
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+        }
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-x: auto;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            border: none;
+            font-size: 0.85em;
+            color: var(--text-muted);
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            font-size: 0.92em;
+        }
+        th, td {
+            padding: 10px 14px;
+            text-align: left;
+            border: 1px solid var(--border);
+        }
+        th {
+            background: var(--surface);
+            font-weight: 600;
+            color: var(--accent);
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        tr:nth-child(even) { background: var(--table-alt); }
+
+        /* Callouts */
+        .callout {
+            border-left: 4px solid;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            border-radius: 0 8px 8px 0;
+            background: var(--surface);
+        }
+        .callout.critical { border-color: var(--accent-5); }
+        .callout.info { border-color: var(--accent); }
+        .callout.success { border-color: var(--accent-2); }
+        .callout.warning { border-color: var(--accent-4); }
+        .callout .callout-title {
+            font-weight: 700;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+        .callout.critical .callout-title { color: var(--accent-5); }
+        .callout.info .callout-title { color: var(--accent); }
+        .callout.success .callout-title { color: var(--accent-2); }
+        .callout.warning .callout-title { color: var(--accent-4); }
+
+        /* Diagram boxes */
+        .diagram {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+        }
+        .diagram pre {
+            background: none;
+            border: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        /* Stage cards */
+        .stages {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stage-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .stage-card h4 {
+            margin: 0 0 8px 0;
+            color: var(--accent);
+        }
+        .stage-card .capacity {
+            font-size: 1.4em;
+            font-weight: 700;
+            color: var(--accent-2);
+            margin: 8px 0;
+        }
+        .stage-card p {
+            font-size: 0.88em;
+            color: var(--text-muted);
+            margin: 0;
+        }
+
+        /* Bold highlight */
+        strong { color: #fff; }
+
+        /* Horizontal rule */
+        hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 48px 0;
+        }
+
+        /* Fix tag */
+        .fix {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: 600;
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--accent-2);
+            border: 1px solid rgba(63, 185, 80, 0.3);
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 1.8em; }
+            .toc ol { columns: 1; }
+            .stages { grid-template-columns: 1fr; }
+            .container { padding: 20px 16px 80px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+<!-- HERO -->
+<div class="hero">
+    <h1>Application Layer Architecture Guide</h1>
+    <p class="subtitle">From practical single-process start to fully distributed architecture handling thousands of concurrent workflow executions</p>
+    <span class="badge">Workflow Automation Platform &middot; Phase 2</span>
+</div>
+
+<!-- CONTEXT -->
+<div class="callout info">
+    <div class="callout-title">Context</div>
+    <p style="margin:0">The platform has completed <strong>Phase 1</strong> (domain layer): 4 domain projects, 93 source files, 25 domain events, 3 execution aggregates (WorkflowExecution, ActionExecution, LoopExecution), rich graph validation, and snapshot-based runtime isolation. Phase 2 builds the application layer on top of this foundation.</p>
+</div>
+
+<!-- TOC -->
+<nav class="toc">
+    <h2>Table of Contents</h2>
+    <ol>
+        <li><a href="#s1">Domain Layer Prerequisites</a></li>
+        <li><a href="#s2">Application Layer Responsibilities</a></li>
+        <li><a href="#s3">Project Structure</a></li>
+        <li><a href="#s4">Command &amp; Query Design (CQRS)</a></li>
+        <li><a href="#s5">Domain Event Dispatching</a></li>
+        <li><a href="#s6">Domain Events vs Integration Events</a></li>
+        <li><a href="#s7">Event Mapping Layer</a></li>
+        <li><a href="#s8">Cross-Aggregate Coordination (Sagas)</a></li>
+        <li><a href="#s9">Cross-Cutting Concerns</a></li>
+        <li><a href="#s10">Persistence &amp; Unit of Work</a></li>
+        <li><a href="#s11">Read Models &amp; Projections</a></li>
+        <li><a href="#s12">Evolution Strategy: 3 Stages</a></li>
+        <li><a href="#s13">Stage 1: Single-Process Monolith</a></li>
+        <li><a href="#s14">Stage 2: Outbox + Background Workers</a></li>
+        <li><a href="#s15">Stage 3: Fully Distributed</a></li>
+        <li><a href="#s16">Concurrency &amp; Scaling</a></li>
+        <li><a href="#s17">Failure Modes &amp; Recovery</a></li>
+        <li><a href="#s18">Monitoring &amp; Observability</a></li>
+        <li><a href="#s19">Summary: What to Build and When</a></li>
+    </ol>
+</nav>
+
+<!-- SECTION 1 -->
+<section id="s1">
+    <h2><span class="num">1.</span> Domain Layer Prerequisites</h2>
+    <p>Before building the application layer, these domain changes are required:</p>
+
+    <h3>1.1 Missing Domain Events <span class="fix">Critical</span></h3>
+    <p><code>WorkflowExecution.Cancel()</code>, <code>Suspend()</code>, <code>Resume()</code> change state but emit no events. The application layer needs these to cascade state changes across aggregates and update read models.</p>
+    <p><strong>Fix:</strong> Add <code>WorkflowCancelledEvent</code>, <code>WorkflowSuspendedEvent</code>, <code>WorkflowResumedEvent</code>.</p>
+
+    <h3>1.2 DateTime.UtcNow Coupling <span class="fix">Critical</span></h3>
+    <p>38 occurrences of <code>DateTime.UtcNow</code> across aggregates, entities, and events. Makes deterministic testing impossible.</p>
+    <p><strong>Fix:</strong> Use .NET's built-in <code>TimeProvider</code> abstraction. Pass it to aggregate methods. Event convenience constructors already accept <code>DateTime</code> &mdash; wire them to the provider.</p>
+
+    <h3>1.3 RejectionRecord Has No Identity <span class="fix">Persistence Blocker</span></h3>
+    <p>Mutable (has <code>MarkSupersededBy()</code>), stored in <code>List&lt;&gt;</code>, but no ID. EF Core cannot track it.</p>
+    <p><strong>Fix:</strong> Add <code>RejectionRecordId</code>, make it an Entity like <code>LoopIteration</code>.</p>
+
+    <h3>1.4 Aggregate Versioning for Optimistic Concurrency</h3>
+    <p>When two processes try to modify the same WorkflowExecution concurrently (e.g., two parallel branches completing), one must fail and retry.</p>
+    <p><strong>Fix:</strong> Add <code>Version</code> property to <code>AggregateRoot&lt;TId&gt;</code>, incremented on each save.</p>
+
+    <h3>1.5 IRepository Extension</h3>
+    <p>Current interface only has <code>GetByIdAsync</code>, <code>AddAsync</code>, <code>UpdateAsync</code>. Need per-aggregate repository interfaces with query methods, and <code>IUnitOfWork</code> for transaction coordination.</p>
+</section>
+
+<!-- SECTION 2 -->
+<section id="s2">
+    <h2><span class="num">2.</span> Application Layer Responsibilities</h2>
+    <p>The application layer sits between the API/presentation layer and the domain:</p>
+    <table>
+        <thead><tr><th>Responsibility</th><th>What It Means</th></tr></thead>
+        <tbody>
+            <tr><td><strong>Use case orchestration</strong></td><td>Receive a command, load aggregates, invoke domain methods, persist changes</td></tr>
+            <tr><td><strong>Domain event dispatch</strong></td><td>After saving, dispatch events to handlers that coordinate cross-aggregate flows</td></tr>
+            <tr><td><strong>Event transformation</strong></td><td>Map domain events to integration events for cross-process communication</td></tr>
+            <tr><td><strong>Transaction management</strong></td><td>Define what gets saved atomically</td></tr>
+            <tr><td><strong>Authorization</strong></td><td>Verify the caller has permission to perform the operation</td></tr>
+            <tr><td><strong>Validation</strong></td><td>Validate command structure before touching the domain</td></tr>
+            <tr><td><strong>Read model maintenance</strong></td><td>Project domain events into query-optimized data structures</td></tr>
+            <tr><td><strong>Integration orchestration</strong></td><td>Coordinate calls to external systems triggered by domain events</td></tr>
+        </tbody>
+    </table>
+    <div class="callout warning">
+        <div class="callout-title">What it does NOT do</div>
+        <ul style="margin:0">
+            <li>Business rules (those stay in domain aggregates)</li>
+            <li>Infrastructure details (those live in the infrastructure layer)</li>
+            <li>HTTP/gRPC specifics (those live in the API layer)</li>
+        </ul>
+    </div>
+</section>
+
+<!-- SECTION 3 -->
+<section id="s3">
+    <h2><span class="num">3.</span> Project Structure</h2>
+    <pre><code>src/
+  # Existing domain projects (unchanged)
+  WorkflowAutomation.SharedKernel.Domain/
+  WorkflowAutomation.WorkflowDefinition.Domain/
+  WorkflowAutomation.WorkflowExecution.Domain/
+  WorkflowAutomation.WorkflowLanguage.Domain/
+
+  # New application projects
+  WorkflowAutomation.SharedKernel.Application/
+    Abstractions/
+      IUnitOfWork.cs
+      IDomainEventDispatcher.cs
+      IIdempotencyStore.cs
+    Behaviors/                          # MediatR pipeline behaviors
+      LoggingBehavior.cs
+      ValidationBehavior.cs
+      AuthorizationBehavior.cs
+      TransactionBehavior.cs
+      IdempotencyBehavior.cs
+
+  WorkflowAutomation.Contracts/         # Shared between all processes
+    IntegrationEvents/
+      ExecuteIntegrationCommand.cs
+      IntegrationResultEvent.cs
+      WorkflowCompletedNotification.cs
+      ReviewPendingNotification.cs
+    Envelopes/
+      IntegrationEventEnvelope.cs       # Wraps events with metadata
+
+  WorkflowAutomation.WorkflowDefinition.Application/
+    Commands/
+      CreateWorkflowDefinition/
+    Queries/
+      GetWorkflowDefinition/
+    Mappers/
+      WorkflowDefinitionSnapshotMapper.cs
+
+  WorkflowAutomation.WorkflowExecution.Application/
+    Commands/
+      StartWorkflow/ | ApproveReviewStep/ | RejectReviewStep/
+      RecordIntegrationResult/ | CancelWorkflow/
+    Queries/
+      GetWorkflowExecution/ | GetRunningExecutions/ | GetExecutionHistory/
+    EventHandlers/
+      ActionExecutionRequestedHandler.cs
+      ActionCompletedHandler.cs
+      LoopExecutionStartedHandler.cs
+      LoopIterationStartedHandler.cs
+      LoopCompletedHandler.cs
+    EventMappers/                       # Domain event -> integration event
+      IntegrationRequestedEventMapper.cs
+      ReviewStepReachedEventMapper.cs
+      WorkflowCompletedEventMapper.cs
+    ProcessManagers/
+      ActionExecutionProcessManager.cs
+      LoopExecutionProcessManager.cs</code></pre>
+
+    <h3>Dependency Flow</h3>
+    <pre><code>API -> Application -> Domain
+                   -> Contracts
+Infrastructure -> Application (implements interfaces)
+               -> Domain
+Workers -> Application -> Domain
+                       -> Contracts</code></pre>
+</section>
+
+<!-- SECTION 4 -->
+<section id="s4">
+    <h2><span class="num">4.</span> Command &amp; Query Design (CQRS)</h2>
+
+    <h3>Commands (Write Side)</h3>
+    <p>Commands represent user intent. Each command has exactly one handler.</p>
+
+    <h4>WorkflowDefinition Commands</h4>
+    <table>
+        <thead><tr><th>Command</th><th>What It Does</th></tr></thead>
+        <tbody>
+            <tr><td><code>CreateWorkflowDefinitionCommand</code></td><td>Validate + persist a new workflow definition</td></tr>
+            <tr><td><code>PublishWorkflowVersionCommand</code></td><td>Mark a definition as Published (available for execution)</td></tr>
+            <tr><td><code>DeprecateWorkflowVersionCommand</code></td><td>Prevent new executions against this version</td></tr>
+        </tbody>
+    </table>
+
+    <h4>WorkflowExecution Commands</h4>
+    <table>
+        <thead><tr><th>Command</th><th>What It Does</th></tr></thead>
+        <tbody>
+            <tr><td><code>StartWorkflowCommand</code></td><td>Map definition to snapshot, create WorkflowExecution, call Start()</td></tr>
+            <tr><td><code>ApproveReviewStepCommand</code></td><td>Load execution, call ApproveReviewStep(), advance graph</td></tr>
+            <tr><td><code>RejectReviewStepCommand</code></td><td>Load execution, call RejectReviewStep(), rewind graph</td></tr>
+            <tr><td><code>RecordIntegrationResultCommand</code></td><td>Load ActionExecution, record success/failure, trigger completion flow</td></tr>
+            <tr><td><code>CancelWorkflowCommand</code></td><td>Load execution, call Cancel(), cascade to children</td></tr>
+            <tr><td><code>SuspendWorkflowCommand</code></td><td>Pause execution (e.g., rate limit hit)</td></tr>
+            <tr><td><code>ResumeWorkflowCommand</code></td><td>Resume suspended execution</td></tr>
+        </tbody>
+    </table>
+
+    <h4>Command Handler Structure</h4>
+    <pre><code>1. Validate command (FluentValidation)
+2. Authorize caller
+3. Load aggregate(s) from repository
+4. Call domain method(s)
+5. Save via UnitOfWork (triggers event dispatch + outbox write)
+6. Return result</code></pre>
+
+    <h3>Queries (Read Side)</h3>
+    <p>Queries never modify state. They read from the domain model (Stage 1) or from projected read models (Stage 2+).</p>
+    <table>
+        <thead><tr><th>Query</th><th>Returns</th></tr></thead>
+        <tbody>
+            <tr><td><code>GetWorkflowExecutionQuery</code></td><td>Execution status, step statuses, current position in graph</td></tr>
+            <tr><td><code>GetRunningExecutionsQuery</code></td><td>All active executions for a workspace (paginated)</td></tr>
+            <tr><td><code>GetExecutionHistoryQuery</code></td><td>Completed/failed executions with filtering</td></tr>
+            <tr><td><code>GetStepExecutionDetailsQuery</code></td><td>Input, output, error, attempts for a specific step</td></tr>
+            <tr><td><code>GetPendingReviewsQuery</code></td><td>All executions waiting for review approval</td></tr>
+        </tbody>
+    </table>
+</section>
+
+<!-- SECTION 5 -->
+<section id="s5">
+    <h2><span class="num">5.</span> Domain Event Dispatching</h2>
+
+    <h3>The Problem</h3>
+    <p>Aggregates collect events via <code>AddDomainEvent()</code>. Nothing dispatches them yet. The dispatch mechanism must handle when events fire relative to persistence, cascading events, and integration event extraction.</p>
+
+    <h3>Dispatch Algorithm</h3>
+    <pre><code>UnitOfWork.SaveChangesAsync():
+  1. Persist all tracked aggregates to DB (do NOT commit yet)
+  2. Collect domain events from all tracked aggregates
+  3. Clear events from aggregates
+  4. For each domain event:
+     a. Invoke in-process handlers (MediatR INotificationHandler&lt;T&gt;)
+     b. Handlers may load more aggregates, call domain methods, produce new events
+     c. Persist any newly modified aggregates
+  5. Repeat steps 2-4 until no new events (cap at 10 iterations)
+  6. For each domain event, run event mappers:
+     a. If mapper returns an integration event, serialize to OutboxMessages table
+  7. COMMIT transaction (aggregates + outbox in one atomic operation)</code></pre>
+
+    <div class="callout critical">
+        <div class="callout-title">Why Before Commit (Not After)</div>
+        <p style="margin:0">If a handler for <code>ActionExecutionRequestedEvent</code> creates an <code>ActionExecution</code> aggregate, that aggregate MUST be saved in the same transaction as the <code>WorkflowExecution</code> that emitted the event. If the transaction commits WorkflowExecution with status=Running but the ActionExecution creation fails separately, the workflow is stuck forever.</p>
+    </div>
+
+    <h3>Cascading Event Example</h3>
+    <pre><code>StartWorkflowCommand:
+  handler calls WorkflowExecution.Start()
+    emits WorkflowStartedEvent
+    internally calls ExecuteStep() which emits ActionExecutionRequestedEvent
+
+Dispatch round 1:
+  - WorkflowStartedEvent -> (no handler needed, or read model projection)
+  - ActionExecutionRequestedEvent -> handler creates ActionExecution, calls Execute()
+    ActionExecution emits IntegrationRequestedEvent
+
+Dispatch round 2:
+  - IntegrationRequestedEvent -> mapper produces ExecuteIntegrationCommand for outbox
+    (no in-process handler -- this crosses a process boundary)
+
+No more events. Commit.
+Result: WorkflowExecution + ActionExecution saved atomically.
+        ExecuteIntegrationCommand queued in outbox for async delivery.</code></pre>
+</section>
+
+<!-- SECTION 6 -->
+<section id="s6">
+    <h2><span class="num">6.</span> Domain Events vs Integration Events</h2>
+
+    <p>This is a critical architectural distinction. Confusing these two concepts leads to either brittle coupling or lost events.</p>
+
+    <table>
+        <thead><tr><th>Aspect</th><th>Domain Event</th><th>Integration Event</th></tr></thead>
+        <tbody>
+            <tr><td><strong>Scope</strong></td><td>In-process, same transaction</td><td>Cross-process, async via message bus</td></tr>
+            <tr><td><strong>Purpose</strong></td><td>Coordinate aggregates within bounded context</td><td>Notify other processes/services</td></tr>
+            <tr><td><strong>Defined in</strong></td><td>Domain project</td><td>Contracts project (shared)</td></tr>
+            <tr><td><strong>Contains</strong></td><td>Strongly-typed IDs (<code>StepId</code>)</td><td>Primitive types (<code>Guid</code>, <code>string</code>)</td></tr>
+            <tr><td><strong>Delivery</strong></td><td>In-memory, synchronous</td><td>Message bus, at-least-once</td></tr>
+            <tr><td><strong>Failure</strong></td><td>Rolls back entire transaction</td><td>Retried independently, dead-lettered</td></tr>
+            <tr><td><strong>Ordering</strong></td><td>Guaranteed (sequential dispatch)</td><td>Guaranteed per partition key only</td></tr>
+            <tr><td><strong>Stability</strong></td><td>Can change freely on refactor</td><td>Must be versioned carefully</td></tr>
+        </tbody>
+    </table>
+
+    <h3>Which Domain Events Become Integration Events</h3>
+    <table>
+        <thead><tr><th>Domain Event</th><th>Integration Event</th><th>Why</th></tr></thead>
+        <tbody>
+            <tr><td><code>IntegrationRequestedEvent</code></td><td><code>ExecuteIntegrationCommand</code></td><td>Integration Worker must call external API</td></tr>
+            <tr><td><code>ActionCompletedEvent</code></td><td><code>ActionCompletedMessage</code></td><td>Orchestration Worker advances graph (distributed)</td></tr>
+            <tr><td><code>ActionFailedEvent</code></td><td><code>ActionFailedMessage</code></td><td>Same</td></tr>
+            <tr><td><code>ActionSkippedEvent</code></td><td><code>ActionSkippedMessage</code></td><td>Same</td></tr>
+            <tr><td><code>LoopExecutionStartedEvent</code></td><td><code>StartLoopExecutionCommand</code></td><td>Create LoopExecution aggregate</td></tr>
+            <tr><td><code>LoopIterationStartedEvent</code></td><td><code>StartChildWorkflowCommand</code></td><td>Create child workflow per iteration</td></tr>
+            <tr><td><code>LoopCompletedEvent</code></td><td><code>LoopCompletedMessage</code></td><td>Advance parent graph</td></tr>
+            <tr><td><code>ReviewStepReachedEvent</code></td><td><code>ReviewPendingNotification</code></td><td>Send approval request</td></tr>
+            <tr><td><code>WorkflowCompletedEvent</code></td><td><code>WorkflowCompletedNotification</code></td><td>Webhooks, notifications</td></tr>
+            <tr><td><code>WorkflowFailedEvent</code></td><td><code>WorkflowFailedNotification</code></td><td>Alerting</td></tr>
+            <tr><td><code>ConditionBranchSelectedEvent</code></td><td><strong>Not published</strong></td><td>Internal bookkeeping</td></tr>
+            <tr><td><code>ParallelBranchesForkedEvent</code></td><td><strong>Not published</strong></td><td>Internal, branches executed in-process</td></tr>
+            <tr><td><code>ParallelBranchesMergedEvent</code></td><td><strong>Not published</strong></td><td>Internal merge logic</td></tr>
+            <tr><td><code>Step*Events</code></td><td><code>Step*Projection</code></td><td>Read Model Projector (dashboards)</td></tr>
+        </tbody>
+    </table>
+
+    <div class="callout info">
+        <div class="callout-title">Naming Convention Encodes Intent</div>
+        <ul style="margin:0">
+            <li><strong>*Command</strong> &mdash; consumer MUST act (creates aggregate, calls API)</li>
+            <li><strong>*Message</strong> &mdash; consumer uses this to coordinate multi-aggregate flow</li>
+            <li><strong>*Notification</strong> &mdash; side effect, fire-and-forget (email, Slack, webhook)</li>
+            <li><strong>*Projection</strong> &mdash; read model update, no business consequence if delayed</li>
+        </ul>
+    </div>
+</section>
+
+<!-- SECTION 7 -->
+<section id="s7">
+    <h2><span class="num">7.</span> Event Mapping Layer</h2>
+
+    <h3>Mapper Interface</h3>
+    <pre><code>public interface IEventMapper&lt;in TDomainEvent&gt;
+    where TDomainEvent : IDomainEvent
+{
+    IEnumerable&lt;object&gt; MapToIntegrationEvents(TDomainEvent domainEvent);
+    // Returns 0..N integration events. Empty = don't publish.
+    // One domain event may produce multiple integration events
+    // (e.g., WorkflowCompletedEvent -> notification + projection)
+}</code></pre>
+
+    <h3>Mapper Example: IntegrationRequestedEvent</h3>
+    <pre><code>Domain Event (internal):                    Integration Event (published):
+---------------------------------------------  ------------------------------------------
+IntegrationRequestedEvent                       ExecuteIntegrationCommand
+  ActionExecutionId (ActionExecutionId)           ActionExecutionId (Guid)
+  WorkflowExecutionId (WorkflowExecutionId)       WorkflowExecutionId (Guid)
+  StepExecutionId (StepExecutionId)               IntegrationId (Guid)
+  StepId (StepId)                                 CommandName (string)
+  IntegrationId (IntegrationId)                   Input (Dictionary&lt;string,object&gt;)
+  CommandName (string)              --map-->       AttemptNumber (int)
+  Input (StepInput)                               DeadlineUtc (DateTime)
+  AttemptNumber (int)                             CorrelationId (Guid)
+  DeadlineUtc (DateTime)
+  OccurredOn (DateTime)                         Note: StepId, StepExecutionId dropped.
+                                                Consumer doesn't need internal graph IDs.</code></pre>
+
+    <h3>Integration Event Envelope</h3>
+    <pre><code>public record IntegrationEventEnvelope(
+    Guid EventId,              // Unique, for idempotency
+    string EventType,          // "ExecuteIntegrationCommand" (for routing)
+    string PartitionKey,       // WorkflowExecutionId (for ordering)
+    string Payload,            // Serialized JSON
+    DateTime CreatedAt,
+    int Version                // Schema version (for evolution)
+);</code></pre>
+
+    <h3>Version Evolution</h3>
+    <p>When you need to change <code>ExecuteIntegrationCommand</code> (e.g., adding a <code>Priority</code> field): add it with a default value. Old consumers ignore unknown fields. Or introduce V2 &mdash; the mapper decides which version to produce. The domain event is unaffected. Domain refactors never break wire contracts.</p>
+</section>
+
+<!-- SECTION 8 -->
+<section id="s8">
+    <h2><span class="num">8.</span> Cross-Aggregate Coordination (Sagas)</h2>
+
+    <h3>The Coordination Chains</h3>
+
+    <h4>Chain 1: Action Step Lifecycle</h4>
+    <pre><code>WorkflowExecution.ExecuteStep(Action)
+  -> ActionExecutionRequestedEvent
+  -> [Handler] Create ActionExecution, call Execute()
+     -> IntegrationRequestedEvent
+     -> [Handler/Worker] Call external API
+        -> RecordIntegrationResultCommand
+        -> [Handler] ActionExecution.RecordIntegrationSucceeded()
+           -> ActionCompletedEvent
+           -> [Handler] WorkflowExecution.RecordActionCompleted()
+              -> StepCompletedEvent
+              -> AdvanceOrComplete() -> may emit next ActionExecutionRequestedEvent</code></pre>
+
+    <h4>Chain 2: Loop Step Lifecycle</h4>
+    <pre><code>WorkflowExecution.ExecuteStep(Loop)
+  -> LoopExecutionStartedEvent
+  -> [Handler] Create LoopExecution, call Start()
+     -> LoopIterationStartedEvent (per iteration, up to MaxConcurrency)
+     -> [Handler] Create child WorkflowExecution per iteration
+        -> Child runs full Chain 1/2 recursively
+        -> Child WorkflowCompletedEvent
+        -> [Handler] LoopExecution.RecordIterationCompleted()
+           -> When all done: LoopCompletedEvent
+              -> [Handler] WorkflowExecution.RecordLoopCompleted()
+                 -> AdvanceOrComplete()</code></pre>
+
+    <h4>Chain 3: Parallel Branches (In-Process)</h4>
+    <pre><code>WorkflowExecution.ExecuteStep(Parallel)
+  -> ParallelBranchesForkedEvent
+  -> ExecuteStep() for each branch entry (same aggregate)
+  -> Each branch runs Chain 1/2 independently
+  -> Each branch completion checks AreAllParallelBranchesCompleted()
+  -> When last branch: ParallelBranchesMergedEvent -> AdvanceOrComplete()</code></pre>
+
+    <h4>Chain 4: Review Step (Human Pause)</h4>
+    <pre><code>WorkflowExecution.ExecuteStep(Review)
+  -> ReviewStepReachedEvent
+  -> [Notification Worker] Send approval request (email, Slack, UI)
+  -> ... time passes ...
+  -> ApproveReviewStepCommand -> AdvanceOrComplete()
+  OR
+  -> RejectReviewStepCommand -> invalidate range, re-execute from target</code></pre>
+
+    <h3>Process Manager State</h3>
+    <p>For timeout detection and recovery in Stages 2-3:</p>
+    <pre><code>ProcessManagerState:
+  WorkflowExecutionId
+  CurrentStepId
+  ExpectedEvent (e.g., "IntegrationResultEvent for ActionExecutionId X")
+  TimeoutAt (DeadlineUtc from ActionExecution)
+  State (WaitingForIntegration, WaitingForRetry, WaitingForReview, Completed)</code></pre>
+</section>
+
+<!-- SECTION 9 -->
+<section id="s9">
+    <h2><span class="num">9.</span> Cross-Cutting Concerns</h2>
+    <p>Applied uniformly across all command/query handlers via MediatR <code>IPipelineBehavior&lt;TRequest, TResponse&gt;</code>.</p>
+
+    <h3>9.1 Authorization &amp; Workspace Scoping</h3>
+    <p>Every command carries <code>WorkspaceId</code> and <code>UserId</code>. The authorization behavior verifies the user belongs to the workspace and has the required permission.</p>
+    <table>
+        <thead><tr><th>Permission</th><th>Commands</th></tr></thead>
+        <tbody>
+            <tr><td><code>Workflow.Create</code></td><td>CreateWorkflowDefinition, PublishVersion</td></tr>
+            <tr><td><code>Workflow.Execute</code></td><td>StartWorkflow</td></tr>
+            <tr><td><code>Workflow.Manage</code></td><td>CancelWorkflow, SuspendWorkflow, ResumeWorkflow</td></tr>
+            <tr><td><code>Review.Approve</code></td><td>ApproveReviewStep, RejectReviewStep</td></tr>
+            <tr><td><code>Execution.Read</code></td><td>All queries</td></tr>
+        </tbody>
+    </table>
+    <p><strong>Multi-tenancy:</strong> Every DB query must include <code>WHERE WorkspaceId = @workspaceId</code>.</p>
+
+    <h3>9.2 Validation Pipeline</h3>
+    <p><strong>Application validation</strong> (FluentValidation, before domain): command structure, reference checks, state preconditions.</p>
+    <p><strong>Domain validation</strong> (inside aggregates): guard methods, state machine checks.</p>
+    <h4>Error Mapping</h4>
+    <pre><code>InvalidOperationException (domain guard)
+  -> CommandResult.Failure(DomainErrorCode, message)
+    -> API: HTTP 409 Conflict or 422 Unprocessable Entity
+
+ValidationException (FluentValidation)
+  -> CommandResult.ValidationFailure(errors[])
+    -> API: HTTP 400 Bad Request
+
+UnauthorizedException
+  -> API: HTTP 403 Forbidden</code></pre>
+
+    <h3>9.3 Logging &amp; Correlation</h3>
+    <p>Workflow executions span multiple commands over hours/days. Every log entry needs:</p>
+    <ul>
+        <li><code>WorkflowExecutionId</code> &mdash; the primary correlation ID</li>
+        <li><code>StepId</code> &mdash; which step is being processed</li>
+        <li><code>ActionExecutionId</code> / <code>LoopExecutionId</code> &mdash; if applicable</li>
+        <li><code>CommandType</code> &mdash; which command triggered this log</li>
+    </ul>
+    <p>For distributed mode: the CorrelationId must propagate through message bus headers.</p>
+
+    <h3>9.4 Transaction Management</h3>
+    <pre><code>TransactionBehavior&lt;T&gt;:
+  Begin transaction
+    -> Run handler (load aggregates, call domain methods)
+    -> UnitOfWork.SaveChangesAsync() (persist + dispatch events + write outbox)
+    -> If success: commit
+    -> If exception: rollback (all aggregate changes + outbox undone)
+
+Query handlers do NOT get a transaction behavior (read-only).</code></pre>
+
+    <h3>9.5 Idempotency</h3>
+    <p><strong>Command-level:</strong> Each command carries an optional <code>IdempotencyKey</code>. The behavior checks against <code>IIdempotencyStore</code> and returns cached result if already processed.</p>
+    <p><strong>Event-handler-level:</strong> Domain aggregate guards prevent double-processing. Handler catches guard exception and treats it as "already processed."</p>
+    <p><strong>Integration callback:</strong> <code>RecordIntegrationResultCommand</code> includes <code>ActionExecutionId</code> + <code>AttemptNumber</code>. ActionExecution validates the attempt number matches.</p>
+
+    <h3>9.6 Rate Limiting &amp; Throttling</h3>
+    <ul>
+        <li><strong>Per-workspace rate limiting:</strong> prevent one workspace from starving others</li>
+        <li><strong>Integration rate limiting:</strong> external APIs have rate limits, enforce before dispatching</li>
+        <li><strong>Global back-pressure:</strong> reject new StartWorkflow commands with 429 when overloaded</li>
+    </ul>
+
+    <h3>The MediatR Pipeline Stack</h3>
+    <pre><code>Request arrives
+  -> LoggingBehavior (set correlation ID, log entry/exit)
+  -> ValidationBehavior (FluentValidation on command fields)
+  -> AuthorizationBehavior (check user permissions + workspace scope)
+  -> IdempotencyBehavior (short-circuit if already processed)
+  -> TransactionBehavior (begin/commit/rollback)
+     -> Handler executes
+        -> Domain events dispatched (within transaction)
+        -> Integration events written to outbox (within transaction)
+  -> Response returned</code></pre>
+</section>
+
+<!-- SECTION 10 -->
+<section id="s10">
+    <h2><span class="num">10.</span> Persistence &amp; Unit of Work</h2>
+
+    <h3>IUnitOfWork Interface</h3>
+    <pre><code>public interface IUnitOfWork
+{
+    Task SaveChangesAsync(CancellationToken ct = default);
+    // Internally:
+    // 1. Persist aggregates
+    // 2. Dispatch domain events (may modify more aggregates)
+    // 3. Map events to integration events, write to outbox
+    // 4. Commit transaction
+}</code></pre>
+
+    <h3>Per-Aggregate Repository Interfaces</h3>
+    <pre><code>public interface IWorkflowExecutionRepository
+    : IRepository&lt;WorkflowExecution, WorkflowExecutionId&gt;
+{
+    Task&lt;IReadOnlyList&lt;WorkflowExecution&gt;&gt; GetRunningByWorkspaceAsync(...);
+    Task&lt;WorkflowExecution?&gt; GetByStepExecutionIdAsync(...);
+}
+
+public interface IActionExecutionRepository
+    : IRepository&lt;ActionExecution, ActionExecutionId&gt;
+{
+    Task&lt;IReadOnlyList&lt;ActionExecution&gt;&gt; GetWaitingForRetryAsync(DateTime beforeUtc, ...);
+    Task&lt;ActionExecution?&gt; GetByStepExecutionIdAsync(...);
+}
+
+public interface ILoopExecutionRepository
+    : IRepository&lt;LoopExecution, LoopExecutionId&gt;
+{
+    Task&lt;LoopExecution?&gt; GetByStepExecutionIdAsync(...);
+}</code></pre>
+
+    <h3>Optimistic Concurrency</h3>
+    <pre><code>UPDATE WorkflowExecutions
+SET ..., Version = @newVersion
+WHERE Id = @id AND Version = @expectedVersion
+
+-- If 0 rows affected: ConcurrencyException -> retry the command</code></pre>
+    <p>Critical for parallel branch completion: two branches completing simultaneously both try to modify the same WorkflowExecution. One succeeds, the other retries.</p>
+</section>
+
+<!-- SECTION 11 -->
+<section id="s11">
+    <h2><span class="num">11.</span> Read Models &amp; Projections</h2>
+
+    <h3>Why Separate Read Models</h3>
+    <p>Domain aggregates are optimized for writes. Loading a full WorkflowExecution with its snapshot, step executions, and rejection history just to show a status badge is wasteful.</p>
+
+    <h3>Read Model Tables</h3>
+    <pre><code>WorkflowExecutionView:
+  Id, WorkspaceId, WorkflowName, Status, StartedAt, CompletedAt,
+  CurrentStepName, TotalSteps, CompletedSteps, FailedSteps, StartedBy
+
+StepExecutionView:
+  Id, WorkflowExecutionId, StepName, StepType, Status,
+  StartedAt, CompletedAt, Error, AttemptCount
+
+PendingReviewView:
+  WorkflowExecutionId, StepId, StepName, ReachedAt, WorkflowName
+
+ActiveLoopView:
+  LoopExecutionId, WorkflowExecutionId, StepName,
+  TotalIterations, CompletedIterations, FailedIterations</code></pre>
+
+    <h3>Projection Strategy</h3>
+    <p><strong>Stage 1:</strong> Query domain model directly via EF Core. Good enough for &lt;100 concurrent workflows.</p>
+    <p><strong>Stage 2+:</strong> Project from domain events into denormalized read model tables. Eventually consistent in distributed mode (1-2s lag acceptable for dashboards).</p>
+</section>
+
+<!-- SECTION 12 -->
+<section id="s12">
+    <h2><span class="num">12.</span> Evolution Strategy: 3 Stages</h2>
+    <p>Build the same application layer code, deploy differently at each stage. Handlers remain identical &mdash; only dispatch mechanism and topology change.</p>
+
+    <div class="stages">
+        <div class="stage-card">
+            <h4>Stage 1: Single Process</h4>
+            <div class="capacity">~100</div>
+            <p>concurrent workflows</p>
+            <p style="margin-top:8px">All in one process. In-memory dispatch. Direct DB queries.</p>
+        </div>
+        <div class="stage-card">
+            <h4>Stage 2: Outbox + Workers</h4>
+            <div class="capacity">~500</div>
+            <p>concurrent workflows</p>
+            <p style="margin-top:8px">API + background workers. Outbox for integration events. Read models introduced.</p>
+        </div>
+        <div class="stage-card">
+            <h4>Stage 3: Fully Distributed</h4>
+            <div class="capacity">1000s</div>
+            <p>concurrent workflows</p>
+            <p style="margin-top:8px">Separate processes. All events via bus. Partitioned by WorkflowExecutionId. Full saga persistence.</p>
+        </div>
+    </div>
+</section>
+
+<!-- SECTION 13 -->
+<section id="s13">
+    <h2><span class="num">13.</span> Stage 1: Single-Process Monolith</h2>
+
+    <p>One ASP.NET process. API endpoints + domain event handlers + background jobs all in-process.</p>
+
+    <pre><code>StartWorkflowCommand
+  -> Handler creates WorkflowExecution, calls Start()
+  -> SaveChangesAsync dispatches events:
+     -> ActionExecutionRequestedHandler creates ActionExecution, calls Execute()
+     -> IntegrationRequestedEvent handled by in-process integration caller
+     -> RecordIntegrationSucceeded -> ActionCompletedEvent
+     -> ActionCompletedHandler advances WorkflowExecution
+     -> Next step's events dispatched...
+  -> All saved in one transaction
+  -> Response returned to caller</code></pre>
+
+    <div class="callout warning">
+        <div class="callout-title">Integration Calls Block</div>
+        <p style="margin:0">External API calls can take seconds. Options: (1) Accept it &mdash; for &lt;100 workflows, a few seconds is fine. (2) Use <code>IHostedService</code> with an in-memory queue &mdash; adds ~50 lines of code.</p>
+    </div>
+
+    <h3>What You Build</h3>
+    <ul>
+        <li>All command/query handlers</li>
+        <li>All domain event handlers</li>
+        <li>MediatR pipeline behaviors (validation, logging, transaction)</li>
+        <li>EF Core persistence with repositories</li>
+        <li>Direct queries for read endpoints</li>
+        <li>In-memory <code>IDomainEventDispatcher</code></li>
+    </ul>
+
+    <h3>What You Skip</h3>
+    <ul>
+        <li>Outbox table, message bus</li>
+        <li>Integration event contracts &amp; event mappers</li>
+        <li>Read model projections</li>
+        <li>Idempotency store (guards are sufficient)</li>
+    </ul>
+</section>
+
+<!-- SECTION 14 -->
+<section id="s14">
+    <h2><span class="num">14.</span> Stage 2: Outbox + Background Workers</h2>
+
+    <h3>When You Need This</h3>
+    <ul>
+        <li>Integration calls are too slow to block requests</li>
+        <li>You need reliability (survive process restarts)</li>
+        <li>You want to separate notification delivery from core execution</li>
+    </ul>
+
+    <h3>Changes from Stage 1</h3>
+    <h4>Add Outbox</h4>
+    <p><code>OutboxMessages</code> table in the same DB. <code>SaveChangesAsync</code> writes integration events to outbox atomically. Background <code>OutboxDispatcher</code> polls and publishes.</p>
+
+    <h4>Separate Integration Calls</h4>
+    <p><code>IntegrationRequestedEvent</code> &rarr; mapper writes <code>ExecuteIntegrationCommand</code> to outbox. <code>IntegrationWorker</code> (IHostedService) processes it, calls external API, dispatches result back.</p>
+
+    <h4>Separate Notifications</h4>
+    <p><code>ReviewStepReachedEvent</code> &rarr; mapper writes <code>ReviewPendingNotification</code> to outbox. <code>NotificationWorker</code> processes it.</p>
+
+    <h4>Coordination Events Stay In-Process</h4>
+    <p><code>ActionCompletedEvent</code>, <code>LoopCompletedEvent</code>, etc. still dispatched via MediatR within <code>SaveChangesAsync</code>. No message bus needed for these yet.</p>
+
+    <h3>What You Add</h3>
+    <ul>
+        <li><code>OutboxMessages</code> table + <code>OutboxDispatcher</code></li>
+        <li>Event mappers for integration + notification events</li>
+        <li><code>IntegrationWorker</code> background service</li>
+        <li><code>NotificationWorker</code> background service</li>
+        <li>Idempotency checks on <code>RecordIntegrationResultCommand</code></li>
+    </ul>
+</section>
+
+<!-- SECTION 15 -->
+<section id="s15">
+    <h2><span class="num">15.</span> Stage 3: Fully Distributed</h2>
+
+    <h3>When You Need This</h3>
+    <ul>
+        <li>Hundreds of concurrent workflows with heavy loop parallelism</li>
+        <li>Multiple teams owning different parts of the system</li>
+        <li>Independent scaling of integration dispatch vs orchestration</li>
+        <li>Zero-downtime deployments require independent service releases</li>
+    </ul>
+
+    <h3>Architecture</h3>
+    <div class="diagram">
+<pre><code>+--------------------------+
+|  API Host                |
+|  - StartWorkflow         |   Writes aggregates + outbox
+|  - ApproveReview         |-------------------------------+
+|  - RejectReview          |                               |
+|  - CancelWorkflow        |                               v
++--------------------------+                    +-------------------+
+                                                |  Message Bus      |
+                                                |  (partitioned by  |
+                                                |  WorkflowExecId)  |
+                                                +--------+----------+
+              +----------------+----------------+--------+--------+-----------+
+              v                v                v                 v           v
+   +--------------+  +--------------+  +---------------+  +----------+  +----------+
+   | Orchestration|  | Integration  |  | Notification  |  | Read     |  | Timeout  |
+   | Worker       |  | Worker       |  | Worker        |  | Model    |  | Monitor  |
+   |              |  |              |  |               |  | Projector|  |          |
+   | ActionExec   |  | Calls APIs,  |  | ReviewPending |  |          |  | Polls    |
+   | Requested    |  | publishes    |  | Notification  |  | Subscribes | saga     |
+   | ActionCompl  |  | result back  |  | Workflow      |  | to ALL   |  | state    |
+   | LoopExec     |  | to bus       |  | Completed/    |  | events   |  | table    |
+   | Started      |  |              |  | Failed        |  |          |  |          |
+   | LoopCompl    |  | Scalable     |  | Emails,Slack  |  | Updates  |  | Fires    |
+   | LoopFailed   |  | per-integra- |  | webhooks      |  | query    |  | deadline |
+   |              |  | tion rate    |  |               |  | tables   |  | events   |
+   | Core graph   |  | limiting     |  |               |  |          |  |          |
+   | advancement  |  |              |  |               |  |          |  |          |
+   +--------------+  +--------------+  +---------------+  +----------+  +----------+</code></pre>
+    </div>
+
+    <h3>Key Changes from Stage 2</h3>
+    <p><strong>ALL events go through outbox + message bus.</strong> Coordination events become integration events in the Contracts project. The Orchestration Worker consumes them.</p>
+    <p><strong>Partitioning:</strong> All events partitioned by <code>WorkflowExecutionId</code>. Guarantees ordering per workflow. Different workflows processed in parallel. LoopExecution events partitioned by <strong>parent</strong> WorkflowExecutionId.</p>
+    <p><strong>Idempotency everywhere:</strong> Every handler checks aggregate state. <code>IIdempotencyStore</code> for command deduplication. Message ACK only after successful save.</p>
+    <p><strong>Saga persistence:</strong> Process manager state persisted to DB. On restart, unfinished sagas resume. Timeout Monitor checks for stale sagas.</p>
+
+    <h3>Scaling the Orchestration Worker</h3>
+    <p><strong>Horizontal scaling via partition assignment:</strong> Message bus has N partitions (e.g., 64). Each worker instance handles a subset. 4 instances &rarr; each handles ~16 partitions &rarr; ~250 concurrent workflows each. Adding instances rebalances automatically.</p>
+    <p><strong>Why partition by WorkflowExecutionId:</strong> All events for one workflow go to the same partition &rarr; same worker instance. No locking needed. Parallel branches completing "simultaneously" arrive sequentially within the partition.</p>
+
+    <h3>Scaling the Integration Worker</h3>
+    <p><strong>Independent of orchestration.</strong> Subscribes only to <code>ExecuteIntegrationCommand</code>. Can have 10x more instances. Stateless: receives command, calls API, publishes result.</p>
+    <p><strong>Per-integration rate limiting:</strong> Token bucket per <code>IntegrationId</code>, shared across instances via Redis.</p>
+</section>
+
+<!-- SECTION 16 -->
+<section id="s16">
+    <h2><span class="num">16.</span> Concurrency &amp; Scaling Considerations</h2>
+
+    <h3>Concurrency Scenarios at Scale</h3>
+
+    <h4>Scenario 1: Two parallel branches complete simultaneously</h4>
+    <p>Both trigger <code>ActionCompletedMessage</code> for the same WorkflowExecution. Partitioned by WorkflowExecutionId &rarr; same partition &rarr; processed sequentially. First message advances, second triggers merge.</p>
+
+    <h4>Scenario 2: Loop with 100 iterations, MaxConcurrency=10</h4>
+    <p>10 child workflows start immediately, each on its own partition. Children run independently at full parallelism. Completions flow back to LoopExecution (parent's partition), start next pending iterations.</p>
+
+    <h4>Scenario 3: 1000 concurrent workflows, 10 steps each</h4>
+    <p>1000 WorkflowExecutionIds across 64 partitions. ~16 per partition. 4 Orchestration Workers, each handles ~250 workflows. Integration Worker handles ~10,000 API calls (8-10 instances).</p>
+
+    <h4>Scenario 4: Nested loops (loop inside loop)</h4>
+    <p>Outer: 10 iterations. Inner: 50 each. Total child workflows: 500. Each child on its own partition. Inner loop completions flow back to parent LoopExecution. Deep nesting works because each level has its own aggregate.</p>
+
+    <h3>Database Scaling</h3>
+    <table>
+        <thead><tr><th>Metric</th><th>Value</th><th>Notes</th></tr></thead>
+        <tbody>
+            <tr><td>Write pressure</td><td>~3,000-5,000/min</td><td>Well within PostgreSQL/SQL Server capability</td></tr>
+            <tr><td>Outbox throughput</td><td>5,000+ msgs/min</td><td>Batch polling every 100ms, multiple dispatchers</td></tr>
+            <tr><td>Read model writes</td><td>~5,000/min</td><td>Simple INSERT/UPDATE, separate connection pool</td></tr>
+        </tbody>
+    </table>
+
+    <h3>Memory Considerations</h3>
+    <table>
+        <thead><tr><th>Aggregate</th><th>Size</th><th>250 Loaded</th></tr></thead>
+        <tbody>
+            <tr><td>WorkflowExecution</td><td>~10-15KB</td><td>~3-4MB</td></tr>
+            <tr><td>ActionExecution</td><td>~1KB</td><td>~250KB</td></tr>
+        </tbody>
+    </table>
+    <p>Negligible memory footprint even at scale.</p>
+</section>
+
+<!-- SECTION 17 -->
+<section id="s17">
+    <h2><span class="num">17.</span> Failure Modes &amp; Recovery</h2>
+
+    <table>
+        <thead><tr><th>Failure</th><th>Impact</th><th>Recovery</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><strong>Message bus down</strong></td>
+                <td>Outbox writes succeed. Execution pauses.</td>
+                <td>OutboxDispatcher retries on polling interval. No data loss. API continues accepting commands.</td>
+            </tr>
+            <tr>
+                <td><strong>Orchestration Worker crashes</strong></td>
+                <td>Message not acknowledged.</td>
+                <td>Bus redelivers to another instance. Idempotent handlers ensure correctness.</td>
+            </tr>
+            <tr>
+                <td><strong>Integration Worker crashes after API call</strong></td>
+                <td>External call may have succeeded.</td>
+                <td><code>ExecuteIntegrationCommand</code> redelivered, worker calls API again. External API must be idempotent or use correlation ID.</td>
+            </tr>
+            <tr>
+                <td><strong>Database failover</strong></td>
+                <td>In-flight transactions roll back.</td>
+                <td>Connection retry with exponential backoff. Outbox dispatcher pauses, resumes. Projector catches up.</td>
+            </tr>
+            <tr>
+                <td><strong>Stuck workflows</strong></td>
+                <td>No event arrives past deadline.</td>
+                <td>Timeout Monitor detects via <code>ProcessManagerState WHERE TimeoutAt &lt; now</code>. Fires <code>RecordDeadlineExceeded</code>. Workflow fails or skips per FailureStrategy.</td>
+            </tr>
+            <tr>
+                <td><strong>Poison messages</strong></td>
+                <td>Handler fails repeatedly.</td>
+                <td>Moved to dead-letter queue after 3 attempts. Alert to operations. Manual replay after fix.</td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+
+<!-- SECTION 18 -->
+<section id="s18">
+    <h2><span class="num">18.</span> Monitoring &amp; Observability</h2>
+
+    <h3>Key Metrics</h3>
+    <table>
+        <thead><tr><th>Category</th><th>Metrics</th></tr></thead>
+        <tbody>
+            <tr><td><strong>Throughput</strong></td><td>Commands/min (by type), Events/min, Integration calls/min, Outbox lag</td></tr>
+            <tr><td><strong>Latency</strong></td><td>Command handling p50/p95/p99, Event dispatch latency, Integration call latency, End-to-end workflow duration, Step duration</td></tr>
+            <tr><td><strong>Health</strong></td><td>Active workflow count, Stuck workflows, Dead-letter depth, Outbox depth, Worker instances, DB pool utilization</td></tr>
+            <tr><td><strong>Errors</strong></td><td>Command failure rate, Integration failure rate, Concurrency retry rate, Dead-letter rate</td></tr>
+        </tbody>
+    </table>
+
+    <h3>Distributed Tracing</h3>
+    <p>Every operation carries:</p>
+    <ul>
+        <li><code>CorrelationId</code> = WorkflowExecutionId (same across all processes)</li>
+        <li><code>CausationId</code> = the event that triggered this handler</li>
+        <li><code>TraceId</code> / <code>SpanId</code> = OpenTelemetry context</li>
+    </ul>
+    <pre><code>API (StartWorkflow)
+  -> Orchestration Worker (create ActionExecution)
+    -> Integration Worker (call external API)
+      -> Orchestration Worker (record result, advance graph)
+        -> Notification Worker (send completion email)
+
+All spans linked by the same CorrelationId.</code></pre>
+
+    <h3>Dashboards</h3>
+    <p><strong>Operational:</strong> Workflow completion funnel, step-level heatmap, integration health, queue depths.</p>
+    <p><strong>Business (from read models):</strong> Workflows completed/hour, average duration by definition, review step bottlenecks, loop iteration throughput.</p>
+</section>
+
+<!-- SECTION 19 -->
+<section id="s19">
+    <h2><span class="num">19.</span> Summary: What to Build and When</h2>
+
+    <table>
+        <thead><tr><th>Component</th><th>Stage 1</th><th>Stage 2</th><th>Stage 3</th></tr></thead>
+        <tbody>
+            <tr><td>Command handlers</td><td>Build</td><td>Reuse</td><td>Reuse</td></tr>
+            <tr><td>Query handlers</td><td>Build (direct)</td><td>Refactor to read models</td><td>Reuse</td></tr>
+            <tr><td>Domain event handlers</td><td>Build (in-process)</td><td>Reuse</td><td>Reuse</td></tr>
+            <tr><td>MediatR pipeline behaviors</td><td>Build</td><td>Reuse</td><td>Reuse</td></tr>
+            <tr><td>EF Core persistence</td><td>Build</td><td>Reuse</td><td>Reuse</td></tr>
+            <tr><td>Optimistic concurrency</td><td>Build</td><td>Reuse</td><td>Reuse</td></tr>
+            <tr><td>Event mappers</td><td>Skip</td><td>Build (integration + notification)</td><td>Extend (coordination)</td></tr>
+            <tr><td>Outbox</td><td>Skip</td><td>Build</td><td>Reuse</td></tr>
+            <tr><td>Message bus</td><td>Skip</td><td>Skip (or lightweight)</td><td>Build</td></tr>
+            <tr><td>Integration Worker</td><td>In-process</td><td>Background service</td><td>Separate process</td></tr>
+            <tr><td>Notification Worker</td><td>In-process</td><td>Background service</td><td>Separate process</td></tr>
+            <tr><td>Orchestration Worker</td><td>N/A (in-process)</td><td>N/A (in-process)</td><td>Separate process</td></tr>
+            <tr><td>Read Model Projector</td><td>N/A</td><td>In-process</td><td>Separate process</td></tr>
+            <tr><td>Timeout Monitor</td><td>Background job</td><td>Background job</td><td>Separate process</td></tr>
+            <tr><td>Saga persistence</td><td>N/A</td><td>N/A</td><td>Build</td></tr>
+            <tr><td>Idempotency store</td><td>N/A</td><td>Build (for integration)</td><td>Extend</td></tr>
+            <tr><td>Distributed tracing</td><td>N/A</td><td>N/A</td><td>Build</td></tr>
+            <tr><td>Contracts project</td><td>Skip</td><td>Build</td><td>Reuse</td></tr>
+        </tbody>
+    </table>
+
+    <div class="callout success">
+        <div class="callout-title">Recommended Starting Point</div>
+        <p style="margin:0"><strong>Stage 1.</strong> Build all handlers, pipeline, and persistence. Design the interfaces so that switching dispatch mechanisms later doesn't require rewriting handlers. The domain event handler signatures and command handler structure remain identical across all three stages.</p>
+    </div>
+</section>
+
+</div>
+</body>
+</html>
